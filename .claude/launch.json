@@ -5,7 +5,8 @@
       "name": "management-ui",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "management-ui"],
-      "port": 3000
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }
