@@ -72,7 +72,7 @@ export function JsonEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-ink sm:max-w-2xl">
+      <DialogContent className="flex max-h-[85vh] flex-col border-ink sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="font-mono text-sm uppercase tracking-[0.1em]">
             Raw config · applyConfig
@@ -86,7 +86,8 @@ export function JsonEditorDialog({
           value={text}
           onChange={(e) => setText(e.target.value)}
           spellCheck={false}
-          className="readout min-h-72 border-hairline-strong text-[12px] leading-relaxed"
+          // field-sizing-fixed: the editor must scroll, not grow the dialog past the viewport
+          className="readout min-h-0 flex-1 basis-72 resize-none overflow-y-auto field-sizing-fixed border-hairline-strong text-[12px] leading-relaxed"
         />
         {errors.length > 0 && (
           <div className="max-h-28 overflow-y-auto border border-err/40 bg-err/10 px-3 py-2">
