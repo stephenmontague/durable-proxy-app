@@ -16,8 +16,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * TCP channel of the device: receives CONTAINER_PUTAWAY on its listen port, acks, and
- * auto-pushes the paired PUTAWAY_CONFIRM to the proxy's TCP ingress port.
+ * TCP channel of the device: receives CONFIG_UPDATE on its listen port, acks, and
+ * auto-pushes the paired CONFIG_ACK to the proxy's TCP ingress port.
  */
 @Component
 public class TcpDeviceServer implements SmartLifecycle {
@@ -94,7 +94,7 @@ public class TcpDeviceServer implements SmartLifecycle {
     }
 
     private void process(Socket socket, String payload, byte[] ack) throws IOException {
-        log.info("device received putaway over TCP: {}", payload.trim());
+        log.info("device received config update over TCP: {}", payload.trim());
         receivedStore.add("TCP", String.valueOf(properties.tcpListenPort()), payload);
 
         socket.getOutputStream().write(ack);
@@ -102,9 +102,9 @@ public class TcpDeviceServer implements SmartLifecycle {
 
         JsonNode body = mapper.readTree(payload);
         ObjectNode confirm = mapper.createObjectNode();
-        confirm.set("containerId", body.get("containerId"));
-        confirm.put("status", "PUTAWAY_COMPLETE");
-        confirmPusher.pushTcpPutawayConfirm(confirm.toString());
+        confirm.set("configId", body.get("configId"));
+        confirm.put("status", "APPLIED");
+        confirmPusher.pushTcpConfigAck(confirm.toString());
     }
 
     private static byte[] delimiterBytes(String s) {

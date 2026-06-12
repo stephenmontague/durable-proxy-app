@@ -1,13 +1,13 @@
 [
   {
-    "deviceId": "dummy-edge",
+    "deviceId": "edge-gateway-01",
     "baseUrl": "http://localhost:8092",
     "host": "127.0.0.1",
     "ftpPort": 2222,
     "ftpUser": "edge",
     "ftpPassword": "edge",
     "bindings": [
-      { "messageType": "PUTAWAY_CONFIRM", "transport": "TCP", "channel": { "kind": "PORT", "value": "7777" } }
+      { "messageType": "CONFIG_ACK", "transport": "TCP", "channel": { "kind": "PORT", "value": "7777" } }
     ]
   }
 ]

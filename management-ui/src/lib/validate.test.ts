@@ -6,9 +6,9 @@ import type { Direction, EdgeConfig, TcpProtocol } from "./types";
 // the Java validator character-for-character.
 
 const typeDirections: Record<string, Direction> = {
-  CONTAINER_PUTAWAY: "CLOUD_TO_EDGE",
-  PUTAWAY_CONFIRM: "EDGE_TO_CLOUD",
-  WAVE_RELEASE: "CLOUD_TO_EDGE",
+  CONFIG_UPDATE: "CLOUD_TO_EDGE",
+  CONFIG_ACK: "EDGE_TO_CLOUD",
+  DEVICE_COMMAND: "CLOUD_TO_EDGE",
 };
 const pool = Array.from({ length: 11 }, (_, i) => 6000 + i);
 
@@ -36,11 +36,11 @@ describe("validateConfig tcpProtocol rules", () => {
       awaitReply: true,
     };
     const d = device({
-      deviceId: "mhe-1",
+      deviceId: "gateway-1",
       tcpProtocol: mllp,
       bindings: [
         {
-          messageType: "PUTAWAY_CONFIRM",
+          messageType: "CONFIG_ACK",
           transport: "TCP",
           channel: { kind: "PORT", value: "6001" },
         },
@@ -54,7 +54,7 @@ describe("validateConfig tcpProtocol rules", () => {
       baseUrl: "http://e",
       bindings: [
         {
-          messageType: "WAVE_RELEASE",
+          messageType: "DEVICE_COMMAND",
           transport: "HTTP",
           channel: { kind: "PATH", value: "/x" },
           tcpProtocol: { endDelimiter: "<LF>" },
@@ -98,7 +98,7 @@ describe("validateConfig tcpProtocol rules", () => {
     const d = device({
       bindings: [
         {
-          messageType: "PUTAWAY_CONFIRM",
+          messageType: "CONFIG_ACK",
           transport: "TCP",
           channel: { kind: "PORT", value: "6001" },
           tcpProtocol: { endDelimiter: "<NOPE>" },
@@ -106,7 +106,7 @@ describe("validateConfig tcpProtocol rules", () => {
       ],
     });
     expect(validateConfig(typeDirections, pool, [d])).toEqual([
-      "a: PUTAWAY_CONFIRM tcpProtocol.endDelimiter: unknown token '<NOPE>' at position 0",
+      "a: CONFIG_ACK tcpProtocol.endDelimiter: unknown token '<NOPE>' at position 0",
     ]);
   });
 });

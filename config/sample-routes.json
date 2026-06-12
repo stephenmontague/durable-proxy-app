@@ -1,18 +1,18 @@
 [
   {
-    "deviceId": "dummy-edge",
+    "deviceId": "edge-gateway-01",
     "baseUrl": "http://localhost:8092",
     "host": "127.0.0.1",
     "ftpPort": 2222,
     "ftpUser": "edge",
     "ftpPassword": "edge",
     "bindings": [
-      { "messageType": "WAVE_RELEASE", "transport": "HTTP", "channel": { "kind": "PATH", "value": "/pick-tasks" } },
-      { "messageType": "PICK_CONFIRM", "transport": "HTTP", "channel": { "kind": "PATH", "value": "/pick-confirm" } },
-      { "messageType": "CONTAINER_PUTAWAY", "transport": "TCP", "channel": { "kind": "PORT", "value": "9001" } },
-      { "messageType": "PUTAWAY_CONFIRM", "transport": "TCP", "channel": { "kind": "PORT", "value": "6002" } },
-      { "messageType": "CYCLE_COUNT_REQ", "transport": "FTP", "channel": { "kind": "FOLDER", "value": "cycle-count" } },
-      { "messageType": "CYCLE_COUNT_CONFIRM", "transport": "FTP", "channel": { "kind": "FOLDER", "value": "cycle-count-confirm" } }
+      { "messageType": "DEVICE_COMMAND", "transport": "HTTP", "channel": { "kind": "PATH", "value": "/commands" } },
+      { "messageType": "COMMAND_RESULT", "transport": "HTTP", "channel": { "kind": "PATH", "value": "/command-result" } },
+      { "messageType": "CONFIG_UPDATE", "transport": "TCP", "channel": { "kind": "PORT", "value": "9001" } },
+      { "messageType": "CONFIG_ACK", "transport": "TCP", "channel": { "kind": "PORT", "value": "6002" } },
+      { "messageType": "REPORT_REQUEST", "transport": "FTP", "channel": { "kind": "FOLDER", "value": "report-requests" } },
+      { "messageType": "REPORT_UPLOAD", "transport": "FTP", "channel": { "kind": "FOLDER", "value": "report-uploads" } }
     ]
   }
 ]

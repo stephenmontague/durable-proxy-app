@@ -14,7 +14,7 @@ import com.proxyapp.routing.MessageType;
  * of being hardcoded in the profile. The proxy converts them back to {@link CatalogEntry} when
  * it rebuilds its {@code MessageCatalog} on reconcile.
  *
- * @param type            message type name, e.g. {@code "WAVE_RELEASE"}
+ * @param type            message type name, e.g. {@code "DEVICE_COMMAND"}
  * @param direction       {@code "CLOUD_TO_EDGE"} or {@code "EDGE_TO_CLOUD"}
  * @param codec           codec name: {@code "json"}, {@code "xml"}, or {@code "raw"}
  * @param cloudEndpoint   for EDGE_TO_CLOUD types, the path the proxy POSTs to; null otherwise

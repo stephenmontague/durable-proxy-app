@@ -25,8 +25,8 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * FTP channel of the device: the proxy uploads CYCLE_COUNT_REQ files into the watched
- * folder; the device reads them and pushes the paired CYCLE_COUNT_CONFIRM into the
+ * FTP channel of the device: the proxy uploads REPORT_REQUEST files into the watched
+ * folder; the device reads them and pushes the paired REPORT_UPLOAD into the
  * proxy's FTP ingress folder.
  */
 @Component
@@ -51,7 +51,7 @@ public class FtpDeviceServer implements SmartLifecycle {
     public void start() {
         try {
             Path root = Path.of(properties.ftpRoot()).toAbsolutePath();
-            Files.createDirectories(root.resolve(properties.cycleCountFolder()));
+            Files.createDirectories(root.resolve(properties.reportRequestFolder()));
 
             FtpServerFactory serverFactory = new FtpServerFactory();
             ListenerFactory listenerFactory = new ListenerFactory();
@@ -99,23 +99,24 @@ public class FtpDeviceServer implements SmartLifecycle {
         }
         String folder = relative.substring(0, lastSlash);
         String filename = relative.substring(lastSlash + 1);
-        if (filename.startsWith(".") || !folder.equals(properties.cycleCountFolder())) {
+        if (filename.startsWith(".") || !folder.equals(properties.reportRequestFolder())) {
             return;
         }
         try {
             Path file = Path.of(properties.ftpRoot()).toAbsolutePath().resolve(relative);
             String payload = Files.readString(file, StandardCharsets.UTF_8);
-            log.info("device received cycle count request via FTP {}: {}", filename, payload.trim());
+            log.info("device received report request via FTP {}: {}", filename, payload.trim());
             receivedStore.add("FTP", folder, payload);
             Files.deleteIfExists(file);
 
             JsonNode body = mapper.readTree(payload);
             ObjectNode confirm = mapper.createObjectNode();
-            confirm.set("countId", body.get("countId"));
-            confirm.set("location", body.get("location"));
-            confirm.put("countedQty", 42);
-            confirmPusher.pushFtpCycleCountConfirm(
-                    "CYCLE_COUNT_CONFIRM-" + body.get("countId").asText() + ".json",
+            confirm.set("reportId", body.get("reportId"));
+            confirm.set("kind", body.get("kind"));
+            confirm.put("rows", 42);
+            confirm.put("status", "UPLOADED");
+            confirmPusher.pushFtpReportUpload(
+                    "REPORT_UPLOAD-" + body.get("reportId").asText() + ".json",
                     confirm.toString());
         } catch (IOException e) {
             log.error("device failed to process FTP drop {}", relative, e);

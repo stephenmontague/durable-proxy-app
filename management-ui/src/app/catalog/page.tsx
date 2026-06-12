@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { usePoll } from "@/hooks/use-poll";
 import { awaitConfigOutcome, postSignal } from "@/lib/actions";
-import { WAREHOUSE_CATALOG } from "@/lib/starter-catalog";
+import { DEVICE_FLEET_CATALOG } from "@/lib/starter-catalog";
 import type { CatalogEntryDto, ControlStateResponse } from "@/lib/types";
 
 export default function CatalogPage() {
@@ -32,11 +32,11 @@ export default function CatalogPage() {
     setBusy(true);
     try {
       const prevVersion = state.version;
-      await postSignal("import-catalog", WAREHOUSE_CATALOG);
+      await postSignal("import-catalog", DEVICE_FLEET_CATALOG);
       const outcome = await awaitConfigOutcome(prevVersion);
       if (outcome.accepted) {
-        toast.success("Warehouse profile imported", {
-          description: `${WAREHOUSE_CATALOG.length} message types are now editable here.`,
+        toast.success("Starter profile imported", {
+          description: `${DEVICE_FLEET_CATALOG.length} message types are now editable here.`,
         });
       } else {
         toast.error("Import rejected", { description: outcome.message });
@@ -103,7 +103,7 @@ export default function CatalogPage() {
             disabled={busy}
             onClick={importProfile}
           >
-            Import warehouse profile
+            Import starter profile
           </Button>
           <Button
             className="btn-hard font-mono text-[10px] uppercase tracking-[0.12em]"
@@ -122,7 +122,7 @@ export default function CatalogPage() {
           <p className="text-[12px] leading-relaxed text-ink-soft">
             This proxy is routing its <span className="font-semibold">built-in profile catalog</span>
             {profileTypeCount > 0 ? ` (${profileTypeCount} types)` : ""} — defined in code, not yet
-            editable here. <span className="font-semibold">Import the warehouse profile</span> to
+            editable here. <span className="font-semibold">Import the starter profile</span> to
             pull those types into editable control state, or <span className="font-semibold">add
             your own</span> to start a fresh catalog for any domain.
           </p>

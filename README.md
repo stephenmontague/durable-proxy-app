@@ -41,7 +41,7 @@ connection:
   paired with the supervisor wrapper, that's a remote restart over egress-only gRPC.
 
 Everything domain-specific (message types, codecs, cloud endpoints, device templates)
-starts in a **profile**; the **Warehouse** profile (WMS ↔ MHE) ships as the reference demo.
+starts in a **profile**; the **device-fleet** profile (cloud platform ↔ on-prem edge devices) ships as the reference demo.
 The profile is only a **seed** — the message catalog is operational state in the control
 workflow, so an operator defines their own message types (name, direction, codec, cloud
 endpoint, dedup field) through the UI's **Catalog** tab with no code change or restart.
@@ -82,16 +82,16 @@ directly**, so the on-prem firewall only ever passes the single egress gRPC conn
 Then:
 
 ```sh
-just demo-http            # WAVE_RELEASE → /pick-tasks → PICK_CONFIRM → cloud
-just demo-putaway-tcp     # CONTAINER_PUTAWAY → TCP 9001 → PUTAWAY_CONFIRM → TCP 6001
-just demo-cycle-count-ftp # CYCLE_COUNT_REQ → FTP folder → CYCLE_COUNT_CONFIRM → FTP folder
+just demo-command            # DEVICE_COMMAND → /commands → COMMAND_RESULT → cloud
+just demo-config-tcp     # CONFIG_UPDATE → TCP 9001 → CONFIG_ACK → TCP 6001
+just demo-report-ftp # REPORT_REQUEST → FTP folder → REPORT_UPLOAD → FTP folder
 just demo-idempotency     # duplicate dispatch collapses to one execution
 just demo-disable         # remote soft-off (ingress stops, outbound pauses, egress stays up)
 just demo-enable          # remote resume
 just demo-apply-config    # hot routing reload (config/sample-routes.json), no restart
 just demo-apply-bad-config# out-of-pool port → rejected with a clear message
 just demo-catalog         # define a custom message type at runtime (xml codec), no restart
-just demo-pick-http-xml   # XML round trip: device emits XML, xml codec extracts the id
+just demo-command-http-xml   # XML round trip: device emits XML, xml codec extracts the id
                           #   (needs: just run-dummy-edge-xml)
 just demo-state           # control workflow state (via cloud → Temporal query)
 just proxy-status         # proxy's locally applied state (listeners, routes)
@@ -126,7 +126,7 @@ proxy/src/main/java/com/proxyapp/
 ├── routing/       MessageType, Direction, Channel, RouteBinding, EdgeConfig, MessageCatalog,
 │                  RouteTable, ConfigValidator, DeviceTemplate, RoutingState,
 │                  MessageTypeResolver SPI + FilenamePatternResolver (opt-in multi-type channels)
-├── profile/       Profile SPI, WarehouseProfile (reference), ProfileRegistry
+├── profile/       Profile SPI, DeviceFleetProfile (reference), ProfileRegistry
 ├── codec/         MessageCodec SPI, JsonCodec/XmlCodec/RawCodec, CodecRegistry
 ├── connector/     Connector SPI, Http/Tcp/FtpConnector, ChannelTarget, ConnectorFactory
 ├── temporal/      workflow/ DeliverToEdgeWorkflow (cloud→edge dispatch)
@@ -143,7 +143,7 @@ proxy/src/main/java/com/proxyapp/
 | --------- | ---------------------- | ----------------------- |
 | **HTTP**  | Device gets `202` only after Temporal accepted the enqueue (`503` while disabled, `404` unbound channel). Relies on device retry until acked. | Non-2xx fails the activity → Temporal retries. Device should treat repeated POSTs of the same business id as idempotent. |
 | **TCP**   | `ACK <activityId>` written only after enqueue; `ERR …` otherwise. Relies on device retry until acked. | Send fails unless the device answers `ACK` → Temporal retries. Raw TCP has no store-and-forward of its own. |
-| **TCP (custom wire protocol)** | Per-device/per-binding `tcpProtocol` config: start/stop frame delimiters (MLLP-style persistent connections, multiple frames per socket, per-frame ack-after-enqueue) and custom ACK/NAK reply templates. | Framed sends with a configurable expected ack (contains-match), or fire-and-forget for silent devices. See the PLAN.md wire-protocol appendix; demo: `just demo-putaway-tcp-framed`. |
+| **TCP (custom wire protocol)** | Per-device/per-binding `tcpProtocol` config: start/stop frame delimiters (MLLP-style persistent connections, multiple frames per socket, per-frame ack-after-enqueue) and custom ACK/NAK reply templates. | Framed sends with a configurable expected ack (contains-match), or fire-and-forget for silent devices. See the PLAN.md wire-protocol appendix; demo: `just demo-config-tcp-framed`. |
 | **FTP**   | Inherently store-and-forward: files persist in the drop folder until consumed (deleted) after a successful enqueue; failed files are re-swept on the next reconcile. | Upload uses temp-name-then-rename so the device never sees partial files; the deterministic filename (`{activityId}.json`) makes activity retries overwrite, not duplicate. |
 
 Common to all: **Activity ID = `{messageType}-{businessId}`** collapses duplicate cloud

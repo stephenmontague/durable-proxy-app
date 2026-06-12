@@ -23,7 +23,7 @@ server:
 proxy:
   task-queue: proxy-main            # data path: DeliverToEdge / DeliverToCloud activities
   control-task-queue: proxy-control # control workflow; stays polling during soft-disable
-  profile: warehouse                # which message catalog/profile to load
+  profile: device-fleet             # which message catalog/profile to load
   cloud:
     base-url: http://localhost:8091
   ingress:
@@ -33,7 +33,7 @@ proxy:
     ftp-user: edge
     ftp-password: edge
   seed:
-    devices-resource: classpath:seed/warehouse-demo-devices.json
+    devices-resource: classpath:seed/device-fleet-devices.json
 
 ---
 spring:

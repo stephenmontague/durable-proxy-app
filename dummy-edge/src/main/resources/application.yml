@@ -9,21 +9,21 @@ edge:
   # Where this device pushes inbound messages (the proxy's ingress channels)
   proxy:
     http-base: http://localhost:8090
-    pick-confirm-path: /pick-confirm
+    command-result-path: /command-result
     tcp-host: 127.0.0.1
-    putaway-confirm-port: 6001
+    config-ack-port: 6001
     ftp-host: 127.0.0.1
     ftp-port: 2221
     ftp-user: edge
     ftp-password: edge
-    cycle-count-confirm-folder: cycle-count-confirm
+    report-upload-folder: report-uploads
   # This device's own channels (where the proxy delivers outbound messages)
   tcp-listen-port: 9001
   ftp-listen-port: 2222
   ftp-root: ./data/edge-ftp
   ftp-user: edge
   ftp-password: edge
-  cycle-count-folder: cycle-count
+  report-request-folder: report-requests
   # Simulated device latency before it pushes the paired confirm
   confirm-delay-ms: 300
 
@@ -49,8 +49,8 @@ edge:
     expected-ack: "ACK"
 
 ---
-# Device speaks XML instead of JSON (just run-dummy-edge-xml). Pair with PICK_CONFIRM set to
-# the xml codec on the proxy — just demo-pick-http-xml does that switch automatically.
+# Device speaks XML instead of JSON (just run-dummy-edge-xml). Pair with COMMAND_RESULT set to
+# the xml codec on the proxy — just demo-command-http-xml does that switch automatically.
 spring:
   config:
     activate:

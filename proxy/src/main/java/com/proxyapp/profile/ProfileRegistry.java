@@ -16,7 +16,7 @@ public final class ProfileRegistry {
     }
 
     public static ProfileRegistry builtIn() {
-        return new ProfileRegistry(List.of(new WarehouseProfile()));
+        return new ProfileRegistry(List.of(new DeviceFleetProfile()));
     }
 
     public Profile require(String name) {

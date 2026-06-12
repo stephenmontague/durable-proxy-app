@@ -1,6 +1,6 @@
 import type { ChannelKind, EdgeConfig, RouteBinding, Transport } from "@/lib/types";
 
-// Mirrors the proxy's built-in device templates (com.proxyapp.profile.WarehouseProfile).
+// Mirrors the proxy's built-in device templates (com.proxyapp.profile.DeviceFleetProfile).
 // A template pre-fills message types, transports, and channel layout; the wizard only
 // asks for site values. PORT channels compute as basePort + portOffset, but every
 // computed channel stays editable before review.
@@ -22,17 +22,17 @@ export interface DeviceTemplateDef {
 
 export const DEVICE_TEMPLATES: DeviceTemplateDef[] = [
   {
-    id: "warehouse-mhe-standard",
-    name: "Standard MHE controller",
+    id: "device-fleet-standard",
+    name: "Standard edge gateway",
     description:
-      "Typical material-handling layout: picks over HTTP, putaway over raw TCP, cycle counts via FTP folders.",
+      "A typical edge gateway: commands over HTTP, config pushes over raw TCP, batch reports via FTP folders.",
     bindings: [
-      { messageType: "WAVE_RELEASE", transport: "HTTP", kind: "PATH", value: "/pick-tasks", portOffset: 0 },
-      { messageType: "PICK_CONFIRM", transport: "HTTP", kind: "PATH", value: "/pick-confirm", portOffset: 0 },
-      { messageType: "CONTAINER_PUTAWAY", transport: "TCP", kind: "PORT", value: null, portOffset: 0 },
-      { messageType: "PUTAWAY_CONFIRM", transport: "TCP", kind: "PORT", value: null, portOffset: 1 },
-      { messageType: "CYCLE_COUNT_REQ", transport: "FTP", kind: "FOLDER", value: "cycle-count", portOffset: 0 },
-      { messageType: "CYCLE_COUNT_CONFIRM", transport: "FTP", kind: "FOLDER", value: "cycle-count-confirm", portOffset: 0 },
+      { messageType: "DEVICE_COMMAND", transport: "HTTP", kind: "PATH", value: "/commands", portOffset: 0 },
+      { messageType: "COMMAND_RESULT", transport: "HTTP", kind: "PATH", value: "/command-result", portOffset: 0 },
+      { messageType: "CONFIG_UPDATE", transport: "TCP", kind: "PORT", value: null, portOffset: 0 },
+      { messageType: "CONFIG_ACK", transport: "TCP", kind: "PORT", value: null, portOffset: 1 },
+      { messageType: "REPORT_REQUEST", transport: "FTP", kind: "FOLDER", value: "report-requests", portOffset: 0 },
+      { messageType: "REPORT_UPLOAD", transport: "FTP", kind: "FOLDER", value: "report-uploads", portOffset: 0 },
     ],
   },
 ];

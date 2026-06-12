@@ -33,7 +33,7 @@ public class OutboundDispatcher {
     }
 
     public Map<String, Object> dispatch(String messageType, JsonNode body) {
-        String idField = WarehouseCatalog.OUTBOUND_BUSINESS_ID_FIELDS.get(messageType);
+        String idField = DeviceFleetCatalog.OUTBOUND_BUSINESS_ID_FIELDS.get(messageType);
         JsonNode idNode = idField == null ? null : body.get(idField);
         if (idNode == null || idNode.asText().isBlank()) {
             throw new IllegalArgumentException("payload must carry '" + idField + "'");

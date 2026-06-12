@@ -23,18 +23,18 @@ public class InboundController {
         this.confirmStore = confirmStore;
     }
 
-    @PostMapping("/api/pick-confirm")
-    public Map<String, String> pickConfirm(@RequestBody CanonicalMessage message) {
+    @PostMapping("/api/command-result")
+    public Map<String, String> commandResult(@RequestBody CanonicalMessage message) {
         return receive(message);
     }
 
-    @PostMapping("/api/putaway-confirm")
-    public Map<String, String> putawayConfirm(@RequestBody CanonicalMessage message) {
+    @PostMapping("/api/config-ack")
+    public Map<String, String> configAck(@RequestBody CanonicalMessage message) {
         return receive(message);
     }
 
-    @PostMapping("/api/cycle-count-confirm")
-    public Map<String, String> cycleCountConfirm(@RequestBody CanonicalMessage message) {
+    @PostMapping("/api/report-upload")
+    public Map<String, String> reportUpload(@RequestBody CanonicalMessage message) {
         return receive(message);
     }
 

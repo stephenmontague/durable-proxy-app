@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 // through Temporal like every real dispatch.
 const DUMMY_CLOUD_URL = process.env.DUMMY_CLOUD_URL ?? "http://localhost:8091";
 
-const KINDS = new Set(["wave-release", "putaway", "cycle-count"]);
+const KINDS = new Set(["command", "config", "report"]);
 
 export async function POST(request: Request) {
   try {

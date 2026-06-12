@@ -6,13 +6,6 @@
     "ftpPort": 2222,
     "ftpUser": "edge",
     "ftpPassword": "edge",
-    "tcpProtocol": {
-      "startDelimiter": "<VT>",
-      "endDelimiter": "<FS><CR>",
-      "ackReply": "<VT>ACK {activityId}<FS><CR>",
-      "nakReply": "<VT>NAK {reason}<FS><CR>",
-      "expectedAck": "ACK"
-    },
     "bindings": [
       { "messageType": "DEVICE_COMMAND", "transport": "HTTP", "channel": { "kind": "PATH", "value": "/commands" } },
       { "messageType": "COMMAND_RESULT", "transport": "HTTP", "channel": { "kind": "PATH", "value": "/command-result" } },

@@ -1,6 +1,6 @@
 package com.proxyapp.routing;
 
-import com.proxyapp.profile.WarehouseProfile;
+import com.proxyapp.profile.DeviceFleetProfile;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -10,14 +10,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ConfigValidatorTest {
 
-    private final MessageCatalog catalog = new WarehouseProfile().catalog();
+    private final MessageCatalog catalog = new DeviceFleetProfile().catalog();
     private final List<Integer> pool = IntStream.rangeClosed(6000, 6010).boxed().toList();
 
     private EdgeConfig validDevice() {
-        return new EdgeConfig("mhe-1", "http://edge:8082", "10.0.0.5", 2222, "u", "p", List.of(
-                new RouteBinding(WarehouseProfile.WAVE_RELEASE, Transport.HTTP, Channel.path("/pick-tasks")),
-                new RouteBinding(WarehouseProfile.PICK_CONFIRM, Transport.HTTP, Channel.path("/pick-confirm")),
-                new RouteBinding(WarehouseProfile.PUTAWAY_CONFIRM, Transport.TCP, Channel.port(6001))));
+        return new EdgeConfig("gateway-1", "http://edge:8082", "10.0.0.5", 2222, "u", "p", List.of(
+                new RouteBinding(DeviceFleetProfile.DEVICE_COMMAND, Transport.HTTP, Channel.path("/commands")),
+                new RouteBinding(DeviceFleetProfile.COMMAND_RESULT, Transport.HTTP, Channel.path("/command-result")),
+                new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP, Channel.port(6001))));
     }
 
     @Test
@@ -27,8 +27,8 @@ class ConfigValidatorTest {
 
     @Test
     void inboundTcpPortMustBeInPool() {
-        EdgeConfig device = new EdgeConfig("mhe-1", null, null, null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.PUTAWAY_CONFIRM, Transport.TCP, Channel.port(7777))));
+        EdgeConfig device = new EdgeConfig("gateway-1", null, null, null, null, null, List.of(
+                new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP, Channel.port(7777))));
         List<String> errors = ConfigValidator.validate(catalog, pool, List.of(device));
         assertThat(errors).singleElement().asString()
                 .contains("7777").contains("port pool");
@@ -37,9 +37,9 @@ class ConfigValidatorTest {
     @Test
     void inboundChannelCollisionAcrossDevicesIsRejected() {
         EdgeConfig a = new EdgeConfig("a", null, null, null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.PUTAWAY_CONFIRM, Transport.TCP, Channel.port(6001))));
+                new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP, Channel.port(6001))));
         EdgeConfig b = new EdgeConfig("b", null, null, null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.PICK_CONFIRM, Transport.TCP, Channel.port(6001))));
+                new RouteBinding(DeviceFleetProfile.COMMAND_RESULT, Transport.TCP, Channel.port(6001))));
         List<String> errors = ConfigValidator.validate(catalog, pool, List.of(a, b));
         assertThat(errors).singleElement().asString().contains("collision");
     }
@@ -47,8 +47,8 @@ class ConfigValidatorTest {
     @Test
     void sameChannelValueOnDifferentTransportsDoesNotCollide() {
         EdgeConfig device = new EdgeConfig("a", "http://e", null, null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.PICK_CONFIRM, Transport.HTTP, Channel.path("/confirm")),
-                new RouteBinding(WarehouseProfile.CYCLE_COUNT_CONFIRM, Transport.FTP, Channel.folder("/confirm"))));
+                new RouteBinding(DeviceFleetProfile.COMMAND_RESULT, Transport.HTTP, Channel.path("/confirm")),
+                new RouteBinding(DeviceFleetProfile.REPORT_UPLOAD, Transport.FTP, Channel.folder("/confirm"))));
         assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
     }
 
@@ -63,7 +63,7 @@ class ConfigValidatorTest {
     @Test
     void transportAndChannelKindMustAgree() {
         EdgeConfig device = new EdgeConfig("a", "http://e", null, null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.WAVE_RELEASE, Transport.TCP, Channel.path("/x"))));
+                new RouteBinding(DeviceFleetProfile.DEVICE_COMMAND, Transport.TCP, Channel.path("/x"))));
         List<String> errors = ConfigValidator.validate(catalog, pool, List.of(device));
         assertThat(errors).singleElement().asString().contains("requires a PORT channel");
     }
@@ -71,18 +71,18 @@ class ConfigValidatorTest {
     @Test
     void outboundBindingsRequireDeviceInfrastructure() {
         EdgeConfig noBaseUrl = new EdgeConfig("a", null, null, null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.WAVE_RELEASE, Transport.HTTP, Channel.path("/x"))));
+                new RouteBinding(DeviceFleetProfile.DEVICE_COMMAND, Transport.HTTP, Channel.path("/x"))));
         assertThat(ConfigValidator.validate(catalog, pool, List.of(noBaseUrl)))
                 .singleElement().asString().contains("baseUrl");
 
         EdgeConfig noHost = new EdgeConfig("b", null, null, null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.CONTAINER_PUTAWAY, Transport.TCP, Channel.port(9001))));
+                new RouteBinding(DeviceFleetProfile.CONFIG_UPDATE, Transport.TCP, Channel.port(9001))));
         assertThat(ConfigValidator.validate(catalog, pool, List.of(noHost)))
                 .singleElement().asString().contains("host");
 
         // outbound TCP ports are on the device, not the proxy: pool does not apply
         EdgeConfig outboundPortOutsidePool = new EdgeConfig("c", null, "10.0.0.9", null, null, null,
-                List.of(new RouteBinding(WarehouseProfile.CONTAINER_PUTAWAY, Transport.TCP, Channel.port(9001))));
+                List.of(new RouteBinding(DeviceFleetProfile.CONFIG_UPDATE, Transport.TCP, Channel.port(9001))));
         assertThat(ConfigValidator.validate(catalog, pool, List.of(outboundPortOutsidePool))).isEmpty();
     }
 
@@ -97,8 +97,8 @@ class ConfigValidatorTest {
     void validMllpTcpProtocolPasses() {
         TcpProtocol mllp = new TcpProtocol("<VT>", "<FS><CR>",
                 "<VT>ACK {activityId}<FS><CR>", "<VT>NAK {reason}<FS><CR>", "ACK", true);
-        EdgeConfig device = new EdgeConfig("mhe-1", null, "10.0.0.5", null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.PUTAWAY_CONFIRM, Transport.TCP,
+        EdgeConfig device = new EdgeConfig("gateway-1", null, "10.0.0.5", null, null, null, List.of(
+                new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP,
                         Channel.port(6001))), mllp);
         assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
     }
@@ -107,7 +107,7 @@ class ConfigValidatorTest {
     void tcpProtocolOverrideRequiresTcpTransport() {
         TcpProtocol proto = new TcpProtocol(null, "<LF>", null, null, null, null);
         EdgeConfig device = new EdgeConfig("a", "http://e", null, null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.WAVE_RELEASE, Transport.HTTP,
+                new RouteBinding(DeviceFleetProfile.DEVICE_COMMAND, Transport.HTTP,
                         Channel.path("/x"), null, proto)));
         List<String> errors = ConfigValidator.validate(catalog, pool, List.of(device));
         assertThat(errors).singleElement().asString()
@@ -153,10 +153,10 @@ class ConfigValidatorTest {
     void bindingLevelProtocolIsValidatedWithBindingLabel() {
         TcpProtocol bad = new TcpProtocol(null, "<NOPE>", null, null, null, null);
         EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.PUTAWAY_CONFIRM, Transport.TCP,
+                new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP,
                         Channel.port(6001), null, bad)));
         assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
-                .containsExactly("a: PUTAWAY_CONFIRM tcpProtocol.endDelimiter: unknown token '<NOPE>' at position 0");
+                .containsExactly("a: CONFIG_ACK tcpProtocol.endDelimiter: unknown token '<NOPE>' at position 0");
     }
 
     @Test

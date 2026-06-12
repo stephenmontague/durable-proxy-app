@@ -1,6 +1,6 @@
 package com.proxyapp.control;
 
-import com.proxyapp.profile.WarehouseProfile;
+import com.proxyapp.profile.DeviceFleetProfile;
 import com.proxyapp.routing.Channel;
 import com.proxyapp.routing.EdgeConfig;
 import com.proxyapp.routing.RouteBinding;
@@ -32,8 +32,8 @@ class ProxyControlWorkflowTest {
         env.start();
 
         ProxyControlState seed = new ProxyControlState();
-        seed.setTypeDirections(new WarehouseProfile().catalog().typeDirections());
-        seed.setCatalogEntries(new WarehouseProfile().catalog().entries().stream()
+        seed.setTypeDirections(new DeviceFleetProfile().catalog().typeDirections());
+        seed.setCatalogEntries(new DeviceFleetProfile().catalog().entries().stream()
                 .map(CatalogEntryDto::from).collect(Collectors.toList()));
         seed.setTcpPortPool(IntStream.rangeClosed(6000, 6010).boxed().toList());
 
@@ -93,11 +93,11 @@ class ProxyControlWorkflowTest {
         assertThat(state.getDevices()).hasSize(1);
         assertThat(binding(state).channel()).isEqualTo(Channel.port(6002));
 
-        workflow.removeDevice("mhe-1");
+        workflow.removeDevice("gateway-1");
         assertThat(workflow.getState().getDevices()).isEmpty();
 
-        workflow.removeDevice("mhe-1");
-        assertThat(workflow.getState().getLastError()).contains("no device with id mhe-1");
+        workflow.removeDevice("gateway-1");
+        assertThat(workflow.getState().getLastError()).contains("no device with id gateway-1");
     }
 
     @Test
@@ -120,8 +120,8 @@ class ProxyControlWorkflowTest {
 
     @Test
     void appliedReportIsReflectedInState() {
-        workflow.reportApplied(new AppliedStatus(3, true, List.of("/pick-confirm"),
-                List.of(6001), List.of("cycle-count-confirm"),
+        workflow.reportApplied(new AppliedStatus(3, true, List.of("/command-result"),
+                List.of(6001), List.of("report-uploads"),
                 "2026-06-11T12:00:00Z", "2026-06-11T12:00:05Z", true));
         AppliedStatus applied = workflow.getState().getApplied();
         assertThat(applied).isNotNull();
@@ -137,8 +137,8 @@ class ProxyControlWorkflowTest {
         com.proxyapp.routing.TcpProtocol mllp = new com.proxyapp.routing.TcpProtocol(
                 "<VT>", "<FS><CR>", "<VT>ACK {activityId}<FS><CR>",
                 "<VT>NAK {reason}<FS><CR>", "ACK", null);
-        EdgeConfig device = new EdgeConfig("mhe-1", "http://edge:8082", "10.0.0.5", null, null,
-                null, List.of(new RouteBinding(WarehouseProfile.PUTAWAY_CONFIRM, Transport.TCP,
+        EdgeConfig device = new EdgeConfig("gateway-1", "http://edge:8082", "10.0.0.5", null, null,
+                null, List.of(new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP,
                         Channel.port(6001), null,
                         new com.proxyapp.routing.TcpProtocol(null, "<LF>", null, null, null, false))),
                 mllp);
@@ -175,13 +175,13 @@ class ProxyControlWorkflowTest {
     void upsertMessageTypeReplacesExistingByName() {
         int before = workflow.getState().getCatalogEntries().size();
         workflow.upsertMessageType(
-                new CatalogEntryDto("PICK_CONFIRM", "EDGE_TO_CLOUD", "json",
-                        "/api/pick-confirm-v2", "orderId"));
+                new CatalogEntryDto("COMMAND_RESULT", "EDGE_TO_CLOUD", "json",
+                        "/api/command-result-v2", "commandId"));
         ProxyControlState state = workflow.getState();
         assertThat(state.getCatalogEntries()).hasSize(before); // replaced, not added
         CatalogEntryDto stored = state.getCatalogEntries().stream()
-                .filter(e -> e.type().equals("PICK_CONFIRM")).findFirst().orElseThrow();
-        assertThat(stored.cloudEndpoint()).isEqualTo("/api/pick-confirm-v2");
+                .filter(e -> e.type().equals("COMMAND_RESULT")).findFirst().orElseThrow();
+        assertThat(stored.cloudEndpoint()).isEqualTo("/api/command-result-v2");
     }
 
     @Test
@@ -203,27 +203,27 @@ class ProxyControlWorkflowTest {
 
     @Test
     void removeMessageTypeRejectedWhenADeviceBindingReferencesIt() {
-        workflow.applyConfig(List.of(device(6001))); // binds PUTAWAY_CONFIRM
-        workflow.removeMessageType("PUTAWAY_CONFIRM");
+        workflow.applyConfig(List.of(device(6001))); // binds CONFIG_ACK
+        workflow.removeMessageType("CONFIG_ACK");
         ProxyControlState state = workflow.getState();
         assertThat(state.getLastError())
-                .contains("PUTAWAY_CONFIRM is referenced by device(s): mhe-1");
-        assertThat(state.getTypeDirections()).containsKey("PUTAWAY_CONFIRM");
+                .contains("CONFIG_ACK is referenced by device(s): gateway-1");
+        assertThat(state.getTypeDirections()).containsKey("CONFIG_ACK");
     }
 
     @Test
     void removeMessageTypeSucceedsWhenUnused() {
-        workflow.removeMessageType("CYCLE_COUNT_REQ");
+        workflow.removeMessageType("REPORT_REQUEST");
         ProxyControlState state = workflow.getState();
         assertThat(state.getLastError()).isNull();
-        assertThat(state.getTypeDirections()).doesNotContainKey("CYCLE_COUNT_REQ");
+        assertThat(state.getTypeDirections()).doesNotContainKey("REPORT_REQUEST");
     }
 
     @Test
     void importCatalogReplacesTheWholeCatalog() {
         workflow.importCatalog(List.of(
-                new CatalogEntryDto("ORDER_PUSH", "CLOUD_TO_EDGE", "json", null, "orderId"),
-                new CatalogEntryDto("ORDER_ACK", "EDGE_TO_CLOUD", "json", "/api/order-ack", "orderId")));
+                new CatalogEntryDto("ORDER_PUSH", "CLOUD_TO_EDGE", "json", null, "commandId"),
+                new CatalogEntryDto("ORDER_ACK", "EDGE_TO_CLOUD", "json", "/api/order-ack", "commandId")));
         ProxyControlState state = workflow.getState();
         assertThat(state.getLastError()).isNull();
         assertThat(state.getTypeDirections()).containsOnlyKeys("ORDER_PUSH", "ORDER_ACK");
@@ -231,14 +231,14 @@ class ProxyControlWorkflowTest {
 
     @Test
     void importCatalogRejectedWhenItWouldOrphanAnExistingBinding() {
-        workflow.applyConfig(List.of(device(6001))); // binds PUTAWAY_CONFIRM
+        workflow.applyConfig(List.of(device(6001))); // binds CONFIG_ACK
         workflow.importCatalog(List.of(
-                new CatalogEntryDto("ORDER_PUSH", "CLOUD_TO_EDGE", "json", null, "orderId")));
+                new CatalogEntryDto("ORDER_PUSH", "CLOUD_TO_EDGE", "json", null, "commandId")));
         ProxyControlState state = workflow.getState();
         assertThat(state.getLastError())
-                .contains("would orphan device binding(s): mhe-1/PUTAWAY_CONFIRM");
-        // the warehouse catalog stays live
-        assertThat(state.getTypeDirections()).containsKey("PUTAWAY_CONFIRM");
+                .contains("would orphan device binding(s): gateway-1/CONFIG_ACK");
+        // the device-fleet catalog stays live
+        assertThat(state.getTypeDirections()).containsKey("CONFIG_ACK");
     }
 
     private static RouteBinding binding(ProxyControlState state) {
@@ -246,8 +246,8 @@ class ProxyControlWorkflowTest {
     }
 
     private static EdgeConfig device(int inboundPort) {
-        return new EdgeConfig("mhe-1", "http://edge:8082", "10.0.0.5", null, null, null, List.of(
-                new RouteBinding(WarehouseProfile.PUTAWAY_CONFIRM, Transport.TCP,
+        return new EdgeConfig("gateway-1", "http://edge:8082", "10.0.0.5", null, null, null, List.of(
+                new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP,
                         Channel.port(inboundPort))));
     }
 }

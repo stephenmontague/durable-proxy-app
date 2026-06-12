@@ -13,22 +13,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JsonCodecTest {
 
     private final JsonCodec codec = new JsonCodec();
-    private final CatalogEntry entry = new CatalogEntry(MessageType.of("PICK_CONFIRM"),
-            Direction.EDGE_TO_CLOUD, "json", "/api/pick-confirm", "orderId");
+    private final CatalogEntry entry = new CatalogEntry(MessageType.of("COMMAND_RESULT"),
+            Direction.EDGE_TO_CLOUD, "json", "/api/command-result", "commandId");
 
     @Test
     void encodeSendsPayloadAsIs() {
-        CanonicalMessage message = new CanonicalMessage("WAVE_RELEASE", "ORD-1", "{\"orderId\":\"ORD-1\"}");
-        assertThat(codec.encode(message)).isEqualTo("{\"orderId\":\"ORD-1\"}".getBytes(StandardCharsets.UTF_8));
+        CanonicalMessage message = new CanonicalMessage("DEVICE_COMMAND", "ORD-1", "{\"commandId\":\"ORD-1\"}");
+        assertThat(codec.encode(message)).isEqualTo("{\"commandId\":\"ORD-1\"}".getBytes(StandardCharsets.UTF_8));
     }
 
     @Test
     void decodeExtractsBusinessIdFromConfiguredField() {
-        byte[] raw = "{\"orderId\":\"ORD-42\",\"status\":\"PICKED\"}".getBytes(StandardCharsets.UTF_8);
+        byte[] raw = "{\"commandId\":\"ORD-42\",\"status\":\"PICKED\"}".getBytes(StandardCharsets.UTF_8);
         CanonicalMessage message = codec.decode(entry, raw);
-        assertThat(message.messageType()).isEqualTo("PICK_CONFIRM");
+        assertThat(message.messageType()).isEqualTo("COMMAND_RESULT");
         assertThat(message.businessId()).isEqualTo("ORD-42");
-        assertThat(message.activityId()).isEqualTo("PICK_CONFIRM-ORD-42");
+        assertThat(message.activityId()).isEqualTo("COMMAND_RESULT-ORD-42");
     }
 
     @Test

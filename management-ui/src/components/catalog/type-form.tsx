@@ -210,7 +210,7 @@ export function TypeForm({
           >
             <Input
               value={draft.businessIdField ?? ""}
-              placeholder={draft.codec === "raw" ? "(ignored for raw)" : "orderId"}
+              placeholder={draft.codec === "raw" ? "(ignored for raw)" : "commandId"}
               disabled={draft.codec === "raw"}
               onChange={(e) => setDraft({ ...draft, businessIdField: e.target.value })}
             />

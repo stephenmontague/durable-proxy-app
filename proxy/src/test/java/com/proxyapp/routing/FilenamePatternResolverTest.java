@@ -18,21 +18,21 @@ class FilenamePatternResolverTest {
     @Test
     void firstMatchingPatternWins() {
         Map<String, String> patterns = new LinkedHashMap<>();
-        patterns.put("PC-.*\\.json", "PICK_CONFIRM");
-        patterns.put("PA-.*\\.json", "PUTAWAY_CONFIRM");
+        patterns.put("PC-.*\\.json", "COMMAND_RESULT");
+        patterns.put("PA-.*\\.json", "CONFIG_ACK");
         ResolverConfig config = new ResolverConfig(FilenamePatternResolver.KIND, patterns);
 
         assertThat(resolver.resolve(config, context("PC-1001.json")))
-                .contains(MessageType.of("PICK_CONFIRM"));
+                .contains(MessageType.of("COMMAND_RESULT"));
         assertThat(resolver.resolve(config, context("PA-7.json")))
-                .contains(MessageType.of("PUTAWAY_CONFIRM"));
+                .contains(MessageType.of("CONFIG_ACK"));
         assertThat(resolver.resolve(config, context("other.txt"))).isEmpty();
     }
 
     @Test
     void noFilenameMeansNoResolution() {
         ResolverConfig config = new ResolverConfig(FilenamePatternResolver.KIND,
-                Map.of(".*", "PICK_CONFIRM"));
+                Map.of(".*", "COMMAND_RESULT"));
         assertThat(resolver.resolve(config, context(null))).isEmpty();
     }
 }

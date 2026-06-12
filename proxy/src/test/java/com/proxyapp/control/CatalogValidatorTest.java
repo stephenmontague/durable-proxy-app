@@ -11,14 +11,14 @@ class CatalogValidatorTest {
     @Test
     void validEntryHasNoErrors() {
         assertThat(CatalogValidator.validateEntry(
-                new CatalogEntryDto("PICK_CONFIRM", "EDGE_TO_CLOUD", "json", "/api/pick-confirm", "orderId"),
+                new CatalogEntryDto("COMMAND_RESULT", "EDGE_TO_CLOUD", "json", "/api/command-result", "commandId"),
                 CatalogValidator.KNOWN_CODECS)).isEmpty();
     }
 
     @Test
     void cloudToEdgeNeedsNoCloudEndpoint() {
         assertThat(CatalogValidator.validateEntry(
-                new CatalogEntryDto("WAVE_RELEASE", "CLOUD_TO_EDGE", "json", null, "orderId"),
+                new CatalogEntryDto("DEVICE_COMMAND", "CLOUD_TO_EDGE", "json", null, "commandId"),
                 CatalogValidator.KNOWN_CODECS)).isEmpty();
     }
 

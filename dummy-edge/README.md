@@ -5,9 +5,9 @@ three transports with one channel per message type, auto-generating the paired c
 
 | Channel (this device)        | Receives          | Pushes back (to the proxy)            |
 | ---------------------------- | ----------------- | ------------------------------------- |
-| HTTP `POST /pick-tasks`      | WAVE_RELEASE      | PICK_CONFIRM → `POST {proxy}/pick-confirm` |
-| TCP port `9001`              | CONTAINER_PUTAWAY | PUTAWAY_CONFIRM → proxy TCP `6001`    |
-| FTP folder `cycle-count` (server on `2222`) | CYCLE_COUNT_REQ | CYCLE_COUNT_CONFIRM → proxy FTP folder `cycle-count-confirm` (`2221`) |
+| HTTP `POST /commands`      | DEVICE_COMMAND      | COMMAND_RESULT → `POST {proxy}/command-result` |
+| TCP port `9001`              | CONFIG_UPDATE | CONFIG_ACK → proxy TCP `6001`    |
+| FTP folder `report-requests` (server on `2222`) | REPORT_REQUEST | REPORT_UPLOAD → proxy FTP folder `report-uploads` (`2221`) |
 
 `GET /received` lists everything the device received. Confirms are pushed after a small
 simulated delay and retried a few times if the proxy nacks — like a real device.

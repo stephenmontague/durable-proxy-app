@@ -4,7 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "edge")
 public record EdgeProperties(Proxy proxy, int tcpListenPort, int ftpListenPort, String ftpRoot,
-                             String ftpUser, String ftpPassword, String cycleCountFolder,
+                             String ftpUser, String ftpPassword, String reportRequestFolder,
                              long confirmDelayMs, Tcp tcp, Boolean xml) {
 
     /** True when this device speaks XML instead of JSON (the {@code xml} Spring profile). */
@@ -12,9 +12,9 @@ public record EdgeProperties(Proxy proxy, int tcpListenPort, int ftpListenPort, 
         return Boolean.TRUE.equals(xml);
     }
 
-    public record Proxy(String httpBase, String pickConfirmPath, String tcpHost,
-                        int putawayConfirmPort, String ftpHost, int ftpPort, String ftpUser,
-                        String ftpPassword, String cycleCountConfirmFolder) {
+    public record Proxy(String httpBase, String commandResultPath, String tcpHost,
+                        int configAckPort, String ftpHost, int ftpPort, String ftpUser,
+                        String ftpPassword, String reportUploadFolder) {
     }
 
     /**

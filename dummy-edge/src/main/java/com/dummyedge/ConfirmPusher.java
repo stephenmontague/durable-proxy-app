@@ -44,16 +44,16 @@ public class ConfirmPusher {
         this.properties = properties;
     }
 
-    public void pushHttpPickConfirm(String payload) {
-        schedule("PICK_CONFIRM", payload, this::sendHttp, 1);
+    public void pushHttpCommandResult(String payload) {
+        schedule("COMMAND_RESULT", payload, this::sendHttp, 1);
     }
 
-    public void pushTcpPutawayConfirm(String payload) {
-        schedule("PUTAWAY_CONFIRM", payload, this::sendTcp, 1);
+    public void pushTcpConfigAck(String payload) {
+        schedule("CONFIG_ACK", payload, this::sendTcp, 1);
     }
 
-    public void pushFtpCycleCountConfirm(String filename, String payload) {
-        schedule("CYCLE_COUNT_CONFIRM", payload, p -> sendFtp(filename, p), 1);
+    public void pushFtpReportUpload(String filename, String payload) {
+        schedule("REPORT_UPLOAD", payload, p -> sendFtp(filename, p), 1);
     }
 
     private interface Sender {
@@ -80,7 +80,7 @@ public class ConfirmPusher {
     private void sendHttp(String payload) throws Exception {
         var proxy = properties.proxy();
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(proxy.httpBase() + proxy.pickConfirmPath()))
+                .uri(URI.create(proxy.httpBase() + proxy.commandResultPath()))
                 .timeout(Duration.ofSeconds(10))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
@@ -97,7 +97,7 @@ public class ConfirmPusher {
         var tcp = properties.tcp();
         boolean framed = tcp != null && tcp.framed();
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(proxy.tcpHost(), proxy.putawayConfirmPort()), 5_000);
+            socket.connect(new InetSocketAddress(proxy.tcpHost(), proxy.configAckPort()), 5_000);
             socket.setSoTimeout(10_000);
             var out = socket.getOutputStream();
             if (!framed) {
@@ -146,8 +146,8 @@ public class ConfirmPusher {
             }
             client.enterLocalPassiveMode();
             client.setFileType(FTP.BINARY_FILE_TYPE);
-            client.makeDirectory(proxy.cycleCountConfirmFolder());
-            String path = proxy.cycleCountConfirmFolder() + "/" + filename;
+            client.makeDirectory(proxy.reportUploadFolder());
+            String path = proxy.reportUploadFolder() + "/" + filename;
             if (!client.storeFile(path, new ByteArrayInputStream(payload.getBytes(StandardCharsets.UTF_8)))) {
                 throw new IllegalStateException("FTP store to proxy failed: " + client.getReplyString());
             }

@@ -21,19 +21,19 @@ public class DemoController {
         this.confirmStore = confirmStore;
     }
 
-    @PostMapping("/demo/wave-release")
-    public Map<String, Object> waveRelease(@RequestBody JsonNode body) {
-        return dispatcher.dispatch(WarehouseCatalog.WAVE_RELEASE, body);
+    @PostMapping("/demo/command")
+    public Map<String, Object> sendCommand(@RequestBody JsonNode body) {
+        return dispatcher.dispatch(DeviceFleetCatalog.DEVICE_COMMAND, body);
     }
 
-    @PostMapping("/demo/putaway")
-    public Map<String, Object> putaway(@RequestBody JsonNode body) {
-        return dispatcher.dispatch(WarehouseCatalog.CONTAINER_PUTAWAY, body);
+    @PostMapping("/demo/config")
+    public Map<String, Object> pushConfig(@RequestBody JsonNode body) {
+        return dispatcher.dispatch(DeviceFleetCatalog.CONFIG_UPDATE, body);
     }
 
-    @PostMapping("/demo/cycle-count")
-    public Map<String, Object> cycleCount(@RequestBody JsonNode body) {
-        return dispatcher.dispatch(WarehouseCatalog.CYCLE_COUNT_REQ, body);
+    @PostMapping("/demo/report")
+    public Map<String, Object> requestReport(@RequestBody JsonNode body) {
+        return dispatcher.dispatch(DeviceFleetCatalog.REPORT_REQUEST, body);
     }
 
     @GetMapping("/demo/confirms")

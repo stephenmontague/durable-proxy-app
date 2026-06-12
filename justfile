@@ -95,7 +95,7 @@ run-dummy-edge:
 run-dummy-edge-framed:
     mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,framed
 
-# Run the dummy edge speaking XML instead of JSON. Pair with: just demo-pick-http-xml
+# Run the dummy edge speaking XML instead of JSON. Pair with: just demo-command-http-xml
 run-dummy-edge-xml:
     mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,xml
 
@@ -113,37 +113,37 @@ build-ui:
 # Demo (assumes: Temporal on 7233, run-proxy, run-dummy-cloud, run-dummy-edge are up)
 # ---------------------------------------------------------------------------
 
-# End-to-end HTTP round trip: WAVE_RELEASE (cloud->edge) then PICK_CONFIRM (edge->cloud)
-demo-http:
-    @echo ">> Triggering WAVE_RELEASE via dummy-cloud ..."
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/wave-release \
+# End-to-end HTTP round trip: DEVICE_COMMAND (cloud->edge) then COMMAND_RESULT (edge->cloud)
+demo-command:
+    @echo ">> Triggering DEVICE_COMMAND via dummy-cloud ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/demo/command \
         -H 'content-type: application/json' \
-        -d '{"orderId":"ORD-1001","items":[{"sku":"ABC-123","qty":2}]}' | jq .
+        -d '{"commandId":"CMD-1001","action":"REBOOT"}' | jq .
     @echo ">> Inspect both standalone activities in the Temporal UI: {{temporal_ui}}"
     @sleep 2
-    @echo ">> Check dummy-cloud received the PICK_CONFIRM:"
+    @echo ">> Check dummy-cloud received the COMMAND_RESULT:"
     curl -fsS localhost:{{cloud_port}}/demo/confirms | jq .
 
-# TCP round trip: CONTAINER_PUTAWAY (cloud->edge, device port 9001) then
-# PUTAWAY_CONFIRM (edge->cloud, proxy port 6001)
-demo-putaway-tcp:
-    @echo ">> Triggering CONTAINER_PUTAWAY via dummy-cloud ..."
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/putaway \
+# TCP round trip: CONFIG_UPDATE (cloud->edge, device port 9001) then
+# CONFIG_ACK (edge->cloud, proxy port 6001)
+demo-config-tcp:
+    @echo ">> Triggering CONFIG_UPDATE via dummy-cloud ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/demo/config \
         -H 'content-type: application/json' \
-        -d '{"containerId":"CTN-2001","location":"A-01-03"}' | jq .
+        -d '{"configId":"CFG-2001","key":"reportingIntervalSec","value":30}' | jq .
     @sleep 2
-    @echo ">> Check dummy-cloud received the PUTAWAY_CONFIRM:"
+    @echo ">> Check dummy-cloud received the CONFIG_ACK:"
     curl -fsS localhost:{{cloud_port}}/demo/confirms | jq .
 
-# FTP round trip: CYCLE_COUNT_REQ (cloud->edge, device folder cycle-count) then
-# CYCLE_COUNT_CONFIRM (edge->cloud, proxy folder cycle-count-confirm)
-demo-cycle-count-ftp:
-    @echo ">> Triggering CYCLE_COUNT_REQ via dummy-cloud ..."
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/cycle-count \
+# FTP round trip: REPORT_REQUEST (cloud->edge, device folder report-requests) then
+# REPORT_UPLOAD (edge->cloud, proxy folder report-uploads)
+demo-report-ftp:
+    @echo ">> Triggering REPORT_REQUEST via dummy-cloud ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/demo/report \
         -H 'content-type: application/json' \
-        -d '{"countId":"CC-3001","location":"B-02-07"}' | jq .
+        -d '{"reportId":"RPT-3001","kind":"daily-metrics"}' | jq .
     @sleep 3
-    @echo ">> Check dummy-cloud received the CYCLE_COUNT_CONFIRM:"
+    @echo ">> Check dummy-cloud received the REPORT_UPLOAD:"
     curl -fsS localhost:{{cloud_port}}/demo/confirms | jq .
 
 # Remotely DISABLE this install via the control workflow (soft off)
@@ -162,48 +162,48 @@ demo-apply-config file="config/sample-routes.json":
 
 # TCP round trip over a CUSTOM wire protocol (MLLP-style framing + framed acks).
 # Requires dummy-edge running with the framed profile: just run-dummy-edge-framed
-demo-putaway-tcp-framed:
+demo-config-tcp-framed:
     @echo ">> Applying MLLP wire-protocol config (hot, no restart) ..."
     curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
         -H 'content-type: application/json' \
         --data-binary @config/framed-routes.json | jq -c '.state.devices[0].tcpProtocol'
     @sleep 3
-    @echo ">> Triggering CONTAINER_PUTAWAY via dummy-cloud (proxy sends <VT>...<FS><CR>) ..."
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/putaway \
+    @echo ">> Triggering CONFIG_UPDATE via dummy-cloud (proxy sends <VT>...<FS><CR>) ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/demo/config \
         -H 'content-type: application/json' \
-        -d '{"containerId":"CTN-FRAMED","location":"A-01-03"}' | jq .
+        -d '{"configId":"CFG-FRAMED","key":"mode","value":"safe"}' | jq .
     @sleep 3
-    @echo ">> Check dummy-cloud received the PUTAWAY_CONFIRM (pushed back as a framed message):"
-    curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CTN-FRAMED")]'
+    @echo ">> Check dummy-cloud received the CONFIG_ACK (pushed back as a framed message):"
+    curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CFG-FRAMED")]'
 
 # Add a CUSTOM message type to the live catalog (Part 3) — no code change, no restart.
-# Defines a non-warehouse type with the xml codec; it shows up in typeDirections immediately.
+# Defines a type outside the starter profile with the xml codec; it shows up in typeDirections immediately.
 # (Manage the catalog visually on the Switchyard UI's Catalog tab.) Needs the rebuilt dummy-cloud.
 demo-catalog:
-    @echo ">> Defining a custom message type SHIPMENT_SCAN (xml codec, edge->cloud) ..."
+    @echo ">> Defining a custom message type DIAGNOSTICS_UPLOAD (xml codec, edge->cloud) ..."
     curl -fsS -X POST localhost:{{cloud_port}}/control/upsert-message-type \
         -H 'content-type: application/json' \
-        -d '{"type":"SHIPMENT_SCAN","direction":"EDGE_TO_CLOUD","codec":"xml","cloudEndpoint":"/api/shipment-scan","businessIdField":"shipmentId"}' \
+        -d '{"type":"DIAGNOSTICS_UPLOAD","direction":"EDGE_TO_CLOUD","codec":"xml","cloudEndpoint":"/api/diagnostics-upload","businessIdField":"snapshotId"}' \
         | jq '.state.typeDirections'
-    @echo ">> SHIPMENT_SCAN is now routable — defined at runtime, no profile edit, no restart."
+    @echo ">> DIAGNOSTICS_UPLOAD is now routable — defined at runtime, no profile edit, no restart."
 
 # XML round trip over HTTP: device emits XML, the proxy's xml codec pulls the business id
-# from the <orderId> element. Needs dummy-edge on the xml profile (just run-dummy-edge-xml)
+# from the <commandId> element. Needs dummy-edge on the xml profile (just run-dummy-edge-xml)
 # and the rebuilt dummy-cloud (for the upsert-message-type endpoint).
-demo-pick-http-xml:
-    @echo ">> Switching PICK_CONFIRM to the xml codec (live, no restart) ..."
+demo-command-http-xml:
+    @echo ">> Switching COMMAND_RESULT to the xml codec (live, no restart) ..."
     curl -fsS -X POST localhost:{{cloud_port}}/control/upsert-message-type \
         -H 'content-type: application/json' \
-        -d '{"type":"PICK_CONFIRM","direction":"EDGE_TO_CLOUD","codec":"xml","cloudEndpoint":"/api/pick-confirm","businessIdField":"orderId"}' \
-        | jq -c '.state.catalogEntries[] | select(.type=="PICK_CONFIRM")'
+        -d '{"type":"COMMAND_RESULT","direction":"EDGE_TO_CLOUD","codec":"xml","cloudEndpoint":"/api/command-result","businessIdField":"commandId"}' \
+        | jq -c '.state.catalogEntries[] | select(.type=="COMMAND_RESULT")'
     @sleep 3
-    @echo ">> Firing WAVE_RELEASE; the device returns an XML PICK_CONFIRM ..."
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/wave-release \
+    @echo ">> Firing DEVICE_COMMAND; the device returns an XML COMMAND_RESULT ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/demo/command \
         -H 'content-type: application/json' \
-        -d '{"orderId":"ORD-XML","items":[{"sku":"X-1","qty":1}]}' | jq .
+        -d '{"commandId":"CMD-XML","action":"REBOOT"}' | jq .
     @sleep 3
-    @echo ">> Cloud received it (payload is raw XML; businessId extracted from <orderId>):"
-    curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="ORD-XML")]'
+    @echo ">> Cloud received it (payload is raw XML; businessId extracted from <commandId>):"
+    curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CMD-XML")]'
 
 # Push an INVALID routing config (TCP port outside the pool) -> expect rejection
 demo-apply-bad-config:
@@ -219,12 +219,12 @@ demo-state:
 proxy-status:
     curl -fsS localhost:{{proxy_admin_port}}/admin/status | jq .
 
-# Idempotency check: fire the same WAVE_RELEASE twice -> expect one execution
+# Idempotency check: fire the same DEVICE_COMMAND twice -> expect one execution
 demo-idempotency:
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/wave-release \
+    curl -fsS -X POST localhost:{{cloud_port}}/demo/command \
         -H 'content-type: application/json' \
-        -d '{"orderId":"ORD-DUP","items":[{"sku":"X","qty":1}]}' | jq -c .
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/wave-release \
+        -d '{"commandId":"CMD-DUP","action":"REBOOT"}' | jq -c .
+    curl -fsS -X POST localhost:{{cloud_port}}/demo/command \
         -H 'content-type: application/json' \
-        -d '{"orderId":"ORD-DUP","items":[{"sku":"X","qty":1}]}' | jq -c .
+        -d '{"commandId":"CMD-DUP","action":"REBOOT"}' | jq -c .
     @echo ">> Second call should report duplicate:true — exactly ONE execution in the Temporal UI."

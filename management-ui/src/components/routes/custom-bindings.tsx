@@ -1,7 +1,7 @@
 "use client";
 
 // Build-from-scratch binding editor: pick any catalog message type, a transport, and the
-// channel. This is what makes the wizard domain-agnostic — the warehouse template is just one
+// channel. This is what makes the wizard domain-agnostic — the built-in template is just one
 // starting point; here an operator wires up whatever types they defined on the Catalog page.
 
 import { Button } from "@/components/ui/button";

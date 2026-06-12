@@ -8,11 +8,11 @@ import type { CatalogEntryDto } from "./types";
 
 function entry(overrides: Partial<CatalogEntryDto>): CatalogEntryDto {
   return {
-    type: "PICK_CONFIRM",
+    type: "COMMAND_RESULT",
     direction: "EDGE_TO_CLOUD",
     codec: "json",
-    cloudEndpoint: "/api/pick-confirm",
-    businessIdField: "orderId",
+    cloudEndpoint: "/api/command-result",
+    businessIdField: "commandId",
     ...overrides,
   };
 }
@@ -25,7 +25,7 @@ describe("validateCatalogEntry", () => {
   it("CLOUD_TO_EDGE needs no cloudEndpoint", () => {
     expect(
       validateCatalogEntry(
-        entry({ type: "WAVE_RELEASE", direction: "CLOUD_TO_EDGE", cloudEndpoint: null }),
+        entry({ type: "DEVICE_COMMAND", direction: "CLOUD_TO_EDGE", cloudEndpoint: null }),
       ),
     ).toEqual([]);
   });

@@ -13,29 +13,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 class XmlCodecTest {
 
     private final XmlCodec codec = new XmlCodec();
-    private final CatalogEntry entry = new CatalogEntry(MessageType.of("PUTAWAY_CONFIRM"),
-            Direction.EDGE_TO_CLOUD, "xml", "/api/putaway-confirm", "containerId");
+    private final CatalogEntry entry = new CatalogEntry(MessageType.of("CONFIG_ACK"),
+            Direction.EDGE_TO_CLOUD, "xml", "/api/config-ack", "configId");
 
     @Test
     void encodeSendsPayloadAsIs() {
-        String xml = "<confirm><containerId>C-1</containerId></confirm>";
-        CanonicalMessage message = new CanonicalMessage("PUTAWAY_CONFIRM", "C-1", xml);
+        String xml = "<confirm><configId>C-1</configId></confirm>";
+        CanonicalMessage message = new CanonicalMessage("CONFIG_ACK", "C-1", xml);
         assertThat(codec.encode(message)).isEqualTo(xml.getBytes(StandardCharsets.UTF_8));
     }
 
     @Test
     void decodeExtractsBusinessIdFromConfiguredElement() {
-        byte[] raw = "<confirm><containerId>C-42</containerId><status>OK</status></confirm>"
+        byte[] raw = "<confirm><configId>C-42</configId><status>OK</status></confirm>"
                 .getBytes(StandardCharsets.UTF_8);
         CanonicalMessage message = codec.decode(entry, raw);
-        assertThat(message.messageType()).isEqualTo("PUTAWAY_CONFIRM");
+        assertThat(message.messageType()).isEqualTo("CONFIG_ACK");
         assertThat(message.businessId()).isEqualTo("C-42");
-        assertThat(message.activityId()).isEqualTo("PUTAWAY_CONFIRM-C-42");
+        assertThat(message.activityId()).isEqualTo("CONFIG_ACK-C-42");
     }
 
     @Test
     void decodeFindsNestedElement() {
-        byte[] raw = "<msg><header><containerId>C-7</containerId></header></msg>"
+        byte[] raw = "<msg><header><configId>C-7</configId></header></msg>"
                 .getBytes(StandardCharsets.UTF_8);
         assertThat(codec.decode(entry, raw).businessId()).isEqualTo("C-7");
     }
@@ -61,7 +61,7 @@ class XmlCodecTest {
         // doctype, decode swallows it, and we get a content-hash id (no file read, no crash).
         String xxe = "<?xml version=\"1.0\"?>"
                 + "<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\">]>"
-                + "<confirm><containerId>&xxe;</containerId></confirm>";
+                + "<confirm><configId>&xxe;</configId></confirm>";
         CanonicalMessage message = codec.decode(entry, xxe.getBytes(StandardCharsets.UTF_8));
         assertThat(message.businessId()).isNotBlank().doesNotContain("root:");
     }
