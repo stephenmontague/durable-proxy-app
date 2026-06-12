@@ -53,7 +53,8 @@ public class DeliverToEdgeActivityImpl implements DeliverToEdgeActivity {
         var channel = route.binding().channel();
         return switch (route.binding().transport()) {
             case HTTP -> new ChannelTarget.HttpTarget(device.baseUrl() + channel.value());
-            case TCP -> new ChannelTarget.TcpTarget(device.host(), channel.portValue());
+            case TCP -> new ChannelTarget.TcpTarget(device.host(), channel.portValue(),
+                    route.effectiveTcpProtocol());
             case FTP -> new ChannelTarget.FtpTarget(device.host(), device.ftpPort(),
                     device.ftpUser(), device.ftpPassword(), channel.value(),
                     message.activityId() + ".json");

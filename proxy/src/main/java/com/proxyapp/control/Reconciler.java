@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -60,11 +61,11 @@ public class Reconciler {
         routingState.update(table, desired.isEnabled(), desired.getVersion());
 
         if (desired.isEnabled()) {
-            tcpSocketServer.reconcile(table.inboundTcpPorts());
+            tcpSocketServer.reconcile(table.inboundTcpProtocols());
             ftpIngressListener.reconcile(table.inboundFtpFolders());
             setDataWorkerSuspended(false);
         } else {
-            tcpSocketServer.reconcile(Set.of());
+            tcpSocketServer.reconcile(Map.of());
             ftpIngressListener.reconcile(Set.of());
             setDataWorkerSuspended(true);
         }

@@ -49,6 +49,9 @@ public final class ConfigValidator {
             if (!deviceIds.add(id)) {
                 errors.add("duplicate deviceId: " + id);
             }
+            if (device.tcpProtocol() != null) {
+                validateTcpProtocol(id + ": device tcpProtocol", device.tcpProtocol(), errors);
+            }
             for (RouteBinding binding : device.bindings()) {
                 validateBinding(typeDirections, pool, inboundChannelOwners, device, binding, errors);
             }
@@ -74,6 +77,18 @@ public final class ConfigValidator {
             errors.add(id + ": " + binding.transport() + " binding requires a "
                     + expectedKind + " channel, got " + binding.channel());
             return;
+        }
+
+        if (binding.tcpProtocol() != null) {
+            if (binding.transport() != Transport.TCP) {
+                errors.add(id + ": tcpProtocol override requires TCP transport, got "
+                        + binding.transport());
+            } else {
+                String label = binding.messageType() != null
+                        ? binding.messageType().value() : binding.channel().value();
+                validateTcpProtocol(id + ": " + label + " tcpProtocol",
+                        binding.tcpProtocol(), errors);
+            }
         }
 
         if (binding.isMultiType()) {
@@ -125,6 +140,39 @@ public final class ConfigValidator {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Wire-protocol rules. Mirrored verbatim in the management UI's validate.ts —
+     * message text must stay identical (operators compare UI errors with lastError).
+     */
+    private static void validateTcpProtocol(String prefix, TcpProtocol p, List<String> errors) {
+        checkWireField(prefix, "startDelimiter", p.startDelimiter(), errors);
+        checkWireField(prefix, "endDelimiter", p.endDelimiter(), errors);
+        checkWireField(prefix, "ackReply", p.ackReply(), errors);
+        checkWireField(prefix, "nakReply", p.nakReply(), errors);
+        checkWireField(prefix, "expectedAck", p.expectedAck(), errors);
+        if (p.startDelimiter() != null && p.endDelimiter() == null) {
+            errors.add(prefix + ": startDelimiter requires endDelimiter");
+        }
+        if (Boolean.FALSE.equals(p.awaitReply()) && p.expectedAck() != null) {
+            errors.add(prefix + ": expectedAck is meaningless when awaitReply is false");
+        }
+    }
+
+    private static void checkWireField(String prefix, String field, String value,
+                                       List<String> errors) {
+        if (value == null) {
+            return;
+        }
+        if (value.isEmpty()) {
+            errors.add(prefix + "." + field + " must not be empty");
+            return;
+        }
+        String error = WireString.validate(value);
+        if (error != null) {
+            errors.add(prefix + "." + field + ": " + error);
         }
     }
 

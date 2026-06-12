@@ -1,7 +1,9 @@
-import type { Direction, EdgeConfig, RouteBinding } from "@/lib/types";
+import type { Direction, EdgeConfig, RouteBinding, TcpProtocol } from "@/lib/types";
+import { validateWireString } from "@/lib/wire-string";
 
 // Mirrors com.proxyapp.routing.ConfigValidator so the wizard can reject a bad config
 // before signaling. The control workflow re-validates authoritatively on receipt.
+// Error message text must match the Java side character-for-character.
 
 const EXPECTED_KIND: Record<string, string> = {
   HTTP: "PATH",
@@ -28,6 +30,9 @@ export function validateConfig(
       errors.push(`duplicate deviceId: ${device.deviceId}`);
     }
     deviceIds.add(device.deviceId);
+    if (device.tcpProtocol != null) {
+      validateTcpProtocol(`${device.deviceId}: device tcpProtocol`, device.tcpProtocol, errors);
+    }
     for (const binding of device.bindings) {
       validateBinding(typeDirections, pool, inboundChannelOwners, device, binding, errors);
     }
@@ -54,6 +59,15 @@ function validateBinding(
       `${id}: ${binding.transport} binding requires a ${expectedKind} channel, got ${binding.channel.kind}`,
     );
     return;
+  }
+
+  if (binding.tcpProtocol != null) {
+    if (binding.transport !== "TCP") {
+      errors.push(`${id}: tcpProtocol override requires TCP transport, got ${binding.transport}`);
+    } else {
+      const label = binding.messageType != null ? binding.messageType : binding.channel.value;
+      validateTcpProtocol(`${id}: ${label} tcpProtocol`, binding.tcpProtocol, errors);
+    }
   }
 
   const isMultiType = binding.messageType == null && binding.resolver != null;
@@ -110,6 +124,38 @@ function validateBinding(
         }
         break;
     }
+  }
+}
+
+// Wire-protocol rules — mirrors ConfigValidator.validateTcpProtocol verbatim.
+function validateTcpProtocol(prefix: string, p: TcpProtocol, errors: string[]): void {
+  checkWireField(prefix, "startDelimiter", p.startDelimiter, errors);
+  checkWireField(prefix, "endDelimiter", p.endDelimiter, errors);
+  checkWireField(prefix, "ackReply", p.ackReply, errors);
+  checkWireField(prefix, "nakReply", p.nakReply, errors);
+  checkWireField(prefix, "expectedAck", p.expectedAck, errors);
+  if (p.startDelimiter != null && p.endDelimiter == null) {
+    errors.push(`${prefix}: startDelimiter requires endDelimiter`);
+  }
+  if (p.awaitReply === false && p.expectedAck != null) {
+    errors.push(`${prefix}: expectedAck is meaningless when awaitReply is false`);
+  }
+}
+
+function checkWireField(
+  prefix: string,
+  field: string,
+  value: string | null | undefined,
+  errors: string[],
+): void {
+  if (value == null) return;
+  if (value === "") {
+    errors.push(`${prefix}.${field} must not be empty`);
+    return;
+  }
+  const error = validateWireString(value);
+  if (error != null) {
+    errors.push(`${prefix}.${field}: ${error}`);
   }
 }
 

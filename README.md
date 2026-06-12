@@ -135,6 +135,7 @@ proxy/src/main/java/com/proxyapp/
 | --------- | ---------------------- | ----------------------- |
 | **HTTP**  | Device gets `202` only after Temporal accepted the enqueue (`503` while disabled, `404` unbound channel). Relies on device retry until acked. | Non-2xx fails the activity → Temporal retries. Device should treat repeated POSTs of the same business id as idempotent. |
 | **TCP**   | `ACK <activityId>` written only after enqueue; `ERR …` otherwise. Relies on device retry until acked. | Send fails unless the device answers `ACK` → Temporal retries. Raw TCP has no store-and-forward of its own. |
+| **TCP (custom wire protocol)** | Per-device/per-binding `tcpProtocol` config: start/stop frame delimiters (MLLP-style persistent connections, multiple frames per socket, per-frame ack-after-enqueue) and custom ACK/NAK reply templates. | Framed sends with a configurable expected ack (contains-match), or fire-and-forget for silent devices. See the PLAN.md wire-protocol appendix; demo: `just demo-putaway-tcp-framed`. |
 | **FTP**   | Inherently store-and-forward: files persist in the drop folder until consumed (deleted) after a successful enqueue; failed files are re-swept on the next reconcile. | Upload uses temp-name-then-rename so the device never sees partial files; the deterministic filename (`{activityId}.json`) makes activity retries overwrite, not duplicate. |
 
 Common to all: **Activity ID = `{messageType}-{businessId}`** collapses duplicate cloud

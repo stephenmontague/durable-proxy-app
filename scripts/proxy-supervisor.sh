@@ -6,15 +6,21 @@
 set -u
 cd "$(dirname "$0")/.."
 
-JAR=$(ls proxy/target/proxy-app-*.jar 2>/dev/null | head -1)
+JAR=$(ls proxy/target/proxy-app-*.jar 2>/dev/null | grep -v '\-run\.jar' | head -1)
 if [ -z "${JAR}" ]; then
   echo ">> no proxy jar found — run 'mvn -q -pl proxy package -DskipTests' first" >&2
   exit 1
 fi
 
+# Run from a copy: Spring Boot lazy-loads classes from the jar, so rebuilding it in
+# place under a running proxy causes ClassNotFoundException. The copy also makes
+# "rebuild, then RESTART from the management UI" behave like a real deploy.
+RUN_JAR=proxy/target/proxy-app-run.jar
+
 while true; do
-  echo ">> supervisor: launching ${JAR}"
-  java -jar "${JAR}" --spring.profiles.active=local "$@"
+  cp "${JAR}" "${RUN_JAR}"
+  echo ">> supervisor: launching ${RUN_JAR} (from $(basename "${JAR}"))"
+  java -jar "${RUN_JAR}" --spring.profiles.active=local "$@"
   code=$?
   if [ "${code}" -eq 10 ]; then
     echo ">> supervisor: proxy requested RESTART (exit 10) — relaunching in 1s"

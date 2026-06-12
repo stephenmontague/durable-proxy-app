@@ -32,3 +32,18 @@ spring:
   config:
     activate:
       on-profile: local
+
+---
+# MLLP-style TCP wire protocol for the framed demo (just run-dummy-edge-framed).
+# Pair with config/framed-routes.json on the proxy side.
+spring:
+  config:
+    activate:
+      on-profile: framed
+
+edge:
+  tcp:
+    start-delimiter: "\x0B"
+    end-delimiter: "\x1C\x0D"
+    ack-reply: "\x0BACK\x1C\x0D"
+    expected-ack: "ACK"

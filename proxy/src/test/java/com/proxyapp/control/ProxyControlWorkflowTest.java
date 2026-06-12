@@ -127,6 +127,33 @@ class ProxyControlWorkflowTest {
         assertThat(applied.startedAt()).isEqualTo("2026-06-11T12:00:00Z");
     }
 
+    @Test
+    void tcpProtocolSurvivesTheJacksonRoundTrip() {
+        // Through signal payload -> workflow state -> query result; guards against the
+        // phantom-property hazard on record helper accessors.
+        com.proxyapp.routing.TcpProtocol mllp = new com.proxyapp.routing.TcpProtocol(
+                "<VT>", "<FS><CR>", "<VT>ACK {activityId}<FS><CR>",
+                "<VT>NAK {reason}<FS><CR>", "ACK", null);
+        EdgeConfig device = new EdgeConfig("mhe-1", "http://edge:8082", "10.0.0.5", null, null,
+                null, List.of(new RouteBinding(WarehouseProfile.PUTAWAY_CONFIRM, Transport.TCP,
+                        Channel.port(6001), null,
+                        new com.proxyapp.routing.TcpProtocol(null, "<LF>", null, null, null, false))),
+                mllp);
+        workflow.upsertDevice(device);
+
+        ProxyControlState state = workflow.getState();
+        assertThat(state.getLastError()).isNull();
+        EdgeConfig stored = state.getDevices().get(0);
+        assertThat(stored.tcpProtocol()).isEqualTo(mllp);
+        assertThat(stored.tcpProtocol().startDelimiter()).isEqualTo("<VT>");
+        assertThat(stored.tcpProtocol().expectedAck()).isEqualTo("ACK");
+        assertThat(stored.tcpProtocol().awaitReply()).isNull();
+        assertThat(stored.tcpProtocol().shouldAwaitReply()).isTrue();
+        com.proxyapp.routing.TcpProtocol override = stored.bindings().get(0).tcpProtocol();
+        assertThat(override.endDelimiter()).isEqualTo("<LF>");
+        assertThat(override.awaitReply()).isFalse();
+    }
+
     private static RouteBinding binding(ProxyControlState state) {
         return state.getDevices().get(0).bindings().get(0);
     }

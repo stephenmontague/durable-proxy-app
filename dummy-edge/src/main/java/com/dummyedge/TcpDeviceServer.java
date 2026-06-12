@@ -68,23 +68,82 @@ public class TcpDeviceServer implements SmartLifecycle {
     }
 
     private void handle(Socket socket) {
+        EdgeProperties.Tcp tcp = properties.tcp();
+        boolean framed = tcp != null && tcp.framed();
         try (socket) {
             socket.setSoTimeout(10_000);
-            String payload = new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            log.info("device received putaway over TCP: {}", payload.trim());
-            receivedStore.add("TCP", String.valueOf(properties.tcpListenPort()), payload);
-
-            socket.getOutputStream().write("ACK\n".getBytes(StandardCharsets.UTF_8));
-            socket.getOutputStream().flush();
-
-            JsonNode body = mapper.readTree(payload);
-            ObjectNode confirm = mapper.createObjectNode();
-            confirm.set("containerId", body.get("containerId"));
-            confirm.put("status", "PUTAWAY_COMPLETE");
-            confirmPusher.pushTcpPutawayConfirm(confirm.toString());
+            if (!framed) {
+                String payload = new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                process(socket, payload, "ACK\n".getBytes(StandardCharsets.UTF_8));
+                return;
+            }
+            // Framed mode: the proxy doesn't half-close, so read frames by delimiter.
+            byte[] start = delimiterBytes(tcp.startDelimiter());
+            byte[] end = delimiterBytes(tcp.endDelimiter());
+            byte[] ack = tcp.ackReply() != null && !tcp.ackReply().isEmpty()
+                    ? tcp.ackReply().getBytes(StandardCharsets.ISO_8859_1)
+                    : "ACK\n".getBytes(StandardCharsets.UTF_8);
+            java.io.InputStream in = new java.io.BufferedInputStream(socket.getInputStream());
+            byte[] frame;
+            while ((frame = readFrame(in, start, end)) != null) {
+                process(socket, new String(frame, StandardCharsets.UTF_8), ack);
+            }
         } catch (IOException e) {
             log.warn("device TCP connection failed: {}", e.getMessage());
         }
+    }
+
+    private void process(Socket socket, String payload, byte[] ack) throws IOException {
+        log.info("device received putaway over TCP: {}", payload.trim());
+        receivedStore.add("TCP", String.valueOf(properties.tcpListenPort()), payload);
+
+        socket.getOutputStream().write(ack);
+        socket.getOutputStream().flush();
+
+        JsonNode body = mapper.readTree(payload);
+        ObjectNode confirm = mapper.createObjectNode();
+        confirm.set("containerId", body.get("containerId"));
+        confirm.put("status", "PUTAWAY_COMPLETE");
+        confirmPusher.pushTcpPutawayConfirm(confirm.toString());
+    }
+
+    private static byte[] delimiterBytes(String s) {
+        return s == null || s.isEmpty() ? null : s.getBytes(StandardCharsets.ISO_8859_1);
+    }
+
+    /** Read one delimited frame (start stripped if configured); null on EOF. */
+    private static byte[] readFrame(java.io.InputStream in, byte[] start, byte[] end)
+            throws IOException {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        boolean seekingStart = start != null;
+        int b;
+        while ((b = in.read()) >= 0) {
+            buf.write(b);
+            byte[] arr = buf.toByteArray(); // demo frames are tiny
+            if (seekingStart) {
+                if (endsWith(arr, start)) {
+                    buf.reset();
+                    seekingStart = false;
+                }
+                continue;
+            }
+            if (endsWith(arr, end)) {
+                return java.util.Arrays.copyOf(arr, arr.length - end.length);
+            }
+        }
+        return null;
+    }
+
+    private static boolean endsWith(byte[] data, byte[] suffix) {
+        if (data.length < suffix.length) {
+            return false;
+        }
+        for (int i = 0; i < suffix.length; i++) {
+            if (data[data.length - suffix.length + i] != suffix[i]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

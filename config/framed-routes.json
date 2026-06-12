@@ -1,0 +1,25 @@
+[
+  {
+    "deviceId": "dummy-edge",
+    "baseUrl": "http://localhost:8092",
+    "host": "127.0.0.1",
+    "ftpPort": 2222,
+    "ftpUser": "edge",
+    "ftpPassword": "edge",
+    "tcpProtocol": {
+      "startDelimiter": "<VT>",
+      "endDelimiter": "<FS><CR>",
+      "ackReply": "<VT>ACK {activityId}<FS><CR>",
+      "nakReply": "<VT>NAK {reason}<FS><CR>",
+      "expectedAck": "ACK"
+    },
+    "bindings": [
+      { "messageType": "WAVE_RELEASE", "transport": "HTTP", "channel": { "kind": "PATH", "value": "/pick-tasks" } },
+      { "messageType": "PICK_CONFIRM", "transport": "HTTP", "channel": { "kind": "PATH", "value": "/pick-confirm" } },
+      { "messageType": "CONTAINER_PUTAWAY", "transport": "TCP", "channel": { "kind": "PORT", "value": "9001" } },
+      { "messageType": "PUTAWAY_CONFIRM", "transport": "TCP", "channel": { "kind": "PORT", "value": "6001" } },
+      { "messageType": "CYCLE_COUNT_REQ", "transport": "FTP", "channel": { "kind": "FOLDER", "value": "cycle-count" } },
+      { "messageType": "CYCLE_COUNT_CONFIRM", "transport": "FTP", "channel": { "kind": "FOLDER", "value": "cycle-count-confirm" } }
+    ]
+  }
+]

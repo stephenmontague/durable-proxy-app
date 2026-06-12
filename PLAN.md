@@ -443,6 +443,29 @@ Progressive disclosure — collapsed by default. Expands to show the `proxy-cont
 
 ---
 
+## Appendix — TCP wire protocol (configurable framing + ACK/NAK)
+
+Real devices frame TCP messages with start/stop characters (e.g. MLLP's `0x0B…0x1C 0x0D`)
+and use protocol-specific ack strings. A `tcpProtocol` block — on a device (default for
+all its TCP bindings) or on a single binding (override) — configures this; absent means
+legacy behavior (EOF framing, `ACK {id}\n`/`ERR …` replies, `ACK` expected outbound).
+
+| Field | Meaning |
+| ----- | ------- |
+| `startDelimiter` | frame start (optional; requires `endDelimiter`) |
+| `endDelimiter`   | frame end; unset = EOF-framed. When set, inbound connections are persistent: multiple frames per connection, each acked individually |
+| `ackReply` / `nakReply` | inbound reply templates, sent **verbatim** after decoding; `{activityId}` / `{reason}` substituted — embed framing chars yourself if your protocol frames acks |
+| `expectedAck`    | outbound: bytes that must appear **anywhere** in the device reply (so `ACK` matches a framed ack; beware a device that naks with `NACK` — use a distinguishing string) |
+| `awaitReply`     | `false` = fire-and-forget (delivery weakens to "TCP write accepted") |
+
+Strings use **WireString** escapes: printable ASCII, `\\` `\r` `\n` `\t` `\<` `\xHH`, and
+named control tokens `<NUL>`–`<US>` + `<DEL>` (full C0 set: `<STX>` `<ETX>` `<VT>` `<FS>`
+`<CR>` `<LF>` `<ACK>` `<NAK>` …). Identical parsers in Java
+(`routing/WireString.java`) and the UI (`lib/wire-string.ts`).
+
+Demo: `just run-dummy-edge-framed` (device speaks MLLP) + `just demo-putaway-tcp-framed`
+(hot-applies `config/framed-routes.json`, runs the putaway round trip framed both ways).
+
 ## Appendix — Local ports
 
 > Updated for the always-on Docker Temporal stack (`~/git/temporal/docker-compose.yml`):

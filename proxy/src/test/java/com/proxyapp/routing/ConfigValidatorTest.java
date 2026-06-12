@@ -94,6 +94,72 @@ class ConfigValidatorTest {
     }
 
     @Test
+    void validMllpTcpProtocolPasses() {
+        TcpProtocol mllp = new TcpProtocol("<VT>", "<FS><CR>",
+                "<VT>ACK {activityId}<FS><CR>", "<VT>NAK {reason}<FS><CR>", "ACK", true);
+        EdgeConfig device = new EdgeConfig("mhe-1", null, "10.0.0.5", null, null, null, List.of(
+                new RouteBinding(WarehouseProfile.PUTAWAY_CONFIRM, Transport.TCP,
+                        Channel.port(6001))), mllp);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void tcpProtocolOverrideRequiresTcpTransport() {
+        TcpProtocol proto = new TcpProtocol(null, "<LF>", null, null, null, null);
+        EdgeConfig device = new EdgeConfig("a", "http://e", null, null, null, null, List.of(
+                new RouteBinding(WarehouseProfile.WAVE_RELEASE, Transport.HTTP,
+                        Channel.path("/x"), null, proto)));
+        List<String> errors = ConfigValidator.validate(catalog, pool, List.of(device));
+        assertThat(errors).singleElement().asString()
+                .isEqualTo("a: tcpProtocol override requires TCP transport, got HTTP");
+    }
+
+    @Test
+    void tcpProtocolFieldsMustParseAndBeNonEmpty() {
+        TcpProtocol bad = new TcpProtocol("\\x0", "", null, null, null, null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), bad);
+        List<String> errors = ConfigValidator.validate(catalog, pool, List.of(device));
+        assertThat(errors).containsExactly(
+                "a: device tcpProtocol.startDelimiter: \\x escape requires two hex digits at position 0",
+                "a: device tcpProtocol.endDelimiter must not be empty");
+    }
+
+    @Test
+    void startDelimiterRequiresEndDelimiter() {
+        TcpProtocol startOnly = new TcpProtocol("<STX>", null, null, null, null, null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), startOnly);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: device tcpProtocol: startDelimiter requires endDelimiter");
+
+        // end-only IS legal: newline-terminated protocols
+        TcpProtocol endOnly = new TcpProtocol(null, "<LF>", null, null, null, null);
+        EdgeConfig ok = new EdgeConfig("b", null, "10.0.0.5", null, null, null,
+                List.of(), endOnly);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(ok))).isEmpty();
+    }
+
+    @Test
+    void fireAndForgetWithExpectedAckIsContradictory() {
+        TcpProtocol contradiction = new TcpProtocol(null, "<LF>", null, null, "PONG", false);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), contradiction);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: device tcpProtocol: expectedAck is meaningless when awaitReply is false");
+    }
+
+    @Test
+    void bindingLevelProtocolIsValidatedWithBindingLabel() {
+        TcpProtocol bad = new TcpProtocol(null, "<NOPE>", null, null, null, null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null, List.of(
+                new RouteBinding(WarehouseProfile.PUTAWAY_CONFIRM, Transport.TCP,
+                        Channel.port(6001), null, bad)));
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: PUTAWAY_CONFIRM tcpProtocol.endDelimiter: unknown token '<NOPE>' at position 0");
+    }
+
+    @Test
     void multiTypeResolverOnlyAllowedOnFtp() {
         EdgeConfig device = new EdgeConfig("a", "http://e", null, null, null, null, List.of(
                 new RouteBinding(null, Transport.HTTP, Channel.path("/mixed"),

@@ -81,7 +81,7 @@ public class ProxyAppConfig {
 
     @Bean
     public TcpSocketServer tcpSocketServer(InboundGateway gateway) {
-        return new TcpSocketServer(gateway);
+        return new TcpSocketServer(gateway::handle);
     }
 
     @Bean

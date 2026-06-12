@@ -19,12 +19,21 @@ public final class RouteTable {
 
     /** Outbound resolution: where to send one message type. */
     public record OutboundRoute(EdgeConfig device, RouteBinding binding, CatalogEntry entry) {
+        /** Binding override wins over the device default; null = legacy wire behavior. */
+        public TcpProtocol effectiveTcpProtocol() {
+            return binding.tcpProtocol() != null ? binding.tcpProtocol() : device.tcpProtocol();
+        }
     }
 
     /** Inbound resolution: what one channel carries and for which device. */
     public record InboundRoute(EdgeConfig device, RouteBinding binding, CatalogEntry entry) {
         public boolean isMultiType() {
             return binding.isMultiType();
+        }
+
+        /** Binding override wins over the device default; null = legacy wire behavior. */
+        public TcpProtocol effectiveTcpProtocol() {
+            return binding.tcpProtocol() != null ? binding.tcpProtocol() : device.tcpProtocol();
         }
     }
 
@@ -73,6 +82,23 @@ public final class RouteTable {
         return inboundChannels(Transport.TCP).stream()
                 .map(Integer::parseInt)
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Inbound TCP port -> effective wire protocol for the listener on that port.
+     * Values may be null (legacy protocol) — hence a HashMap, not Map.copyOf.
+     * Channel-collision validation guarantees at most one binding per port.
+     */
+    public Map<Integer, TcpProtocol> inboundTcpProtocols() {
+        Map<Integer, TcpProtocol> result = new LinkedHashMap<>();
+        String prefix = Transport.TCP.name() + "|";
+        for (Map.Entry<String, InboundRoute> e : inbound.entrySet()) {
+            if (e.getKey().startsWith(prefix)) {
+                result.put(Integer.parseInt(e.getKey().substring(prefix.length())),
+                        e.getValue().effectiveTcpProtocol());
+            }
+        }
+        return result;
     }
 
     /** All FTP folders the proxy must watch. */

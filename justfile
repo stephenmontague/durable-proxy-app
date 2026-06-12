@@ -32,6 +32,11 @@ build:
 test:
     mvn -q test
 
+# Run the management UI's unit tests (WireString/validator parity with the Java side)
+test-ui:
+    @[ -d management-ui/node_modules ] || (cd management-ui && npm install)
+    cd management-ui && npm test
+
 # Compile without packaging
 compile:
     mvn -q compile
@@ -84,6 +89,11 @@ run-dummy-cloud:
 # Run the dummy edge target
 run-dummy-edge:
     mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local
+
+# Run the dummy edge speaking MLLP-style framed TCP (<VT>...<FS><CR>, framed acks).
+# Pair with: just demo-apply-config config/framed-routes.json
+run-dummy-edge-framed:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,framed
 
 # Run the management UI (Next.js dev server on http://localhost:3000)
 run-ui:
@@ -145,6 +155,22 @@ demo-apply-config file="config/sample-routes.json":
     curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
         -H 'content-type: application/json' \
         --data-binary @{{file}} | jq .
+
+# TCP round trip over a CUSTOM wire protocol (MLLP-style framing + framed acks).
+# Requires dummy-edge running with the framed profile: just run-dummy-edge-framed
+demo-putaway-tcp-framed:
+    @echo ">> Applying MLLP wire-protocol config (hot, no restart) ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
+        -H 'content-type: application/json' \
+        --data-binary @config/framed-routes.json | jq -c '.state.devices[0].tcpProtocol'
+    @sleep 3
+    @echo ">> Triggering CONTAINER_PUTAWAY via dummy-cloud (proxy sends <VT>...<FS><CR>) ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/demo/putaway \
+        -H 'content-type: application/json' \
+        -d '{"containerId":"CTN-FRAMED","location":"A-01-03"}' | jq .
+    @sleep 3
+    @echo ">> Check dummy-cloud received the PUTAWAY_CONFIRM (pushed back as a framed message):"
+    curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CTN-FRAMED")]'
 
 # Push an INVALID routing config (TCP port outside the pool) -> expect rejection
 demo-apply-bad-config:

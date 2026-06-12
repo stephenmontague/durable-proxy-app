@@ -94,16 +94,44 @@ public class ConfirmPusher {
 
     private void sendTcp(String payload) throws Exception {
         var proxy = properties.proxy();
+        var tcp = properties.tcp();
+        boolean framed = tcp != null && tcp.framed();
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(proxy.tcpHost(), proxy.putawayConfirmPort()), 5_000);
             socket.setSoTimeout(10_000);
-            socket.getOutputStream().write(payload.getBytes(StandardCharsets.UTF_8));
-            socket.getOutputStream().flush();
-            socket.shutdownOutput();
-            String reply = new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (!reply.startsWith("ACK")) {
-                throw new IllegalStateException("proxy nacked: " + reply.trim());
+            var out = socket.getOutputStream();
+            if (!framed) {
+                out.write(payload.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                socket.shutdownOutput();
+                String reply = new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                if (!reply.startsWith("ACK")) {
+                    throw new IllegalStateException("proxy nacked: " + reply.trim());
+                }
+                return;
             }
+            // Framed: wrap the payload, keep the socket open, match the ack anywhere in
+            // the (possibly framed) reply — mirrors how a real MLLP-style device behaves.
+            if (tcp.startDelimiter() != null && !tcp.startDelimiter().isEmpty()) {
+                out.write(tcp.startDelimiter().getBytes(StandardCharsets.ISO_8859_1));
+            }
+            out.write(payload.getBytes(StandardCharsets.UTF_8));
+            out.write(tcp.endDelimiter().getBytes(StandardCharsets.ISO_8859_1));
+            out.flush();
+            if (Boolean.FALSE.equals(tcp.awaitReply())) {
+                return;
+            }
+            String expected = tcp.expectedAck() == null || tcp.expectedAck().isEmpty()
+                    ? "ACK" : tcp.expectedAck();
+            StringBuilder acc = new StringBuilder();
+            int b;
+            while ((b = socket.getInputStream().read()) >= 0) {
+                acc.append((char) (b & 0xFF));
+                if (acc.indexOf(expected) >= 0) {
+                    return;
+                }
+            }
+            throw new IllegalStateException("proxy closed without expected ack: " + acc);
         }
     }
 

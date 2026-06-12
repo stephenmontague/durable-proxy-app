@@ -14,9 +14,17 @@ import java.util.List;
  * @param ftpUser     device FTP user (outbound FTP)
  * @param ftpPassword device FTP password (outbound FTP)
  * @param bindings    per-message-type channel bindings
+ * @param tcpProtocol device-default TCP wire protocol; null = legacy. Individual TCP
+ *                    bindings may override via {@link RouteBinding#tcpProtocol()}.
  */
 public record EdgeConfig(String deviceId, String baseUrl, String host, Integer ftpPort,
-                         String ftpUser, String ftpPassword, List<RouteBinding> bindings) {
+                         String ftpUser, String ftpPassword, List<RouteBinding> bindings,
+                         TcpProtocol tcpProtocol) {
+
+    public EdgeConfig(String deviceId, String baseUrl, String host, Integer ftpPort,
+                      String ftpUser, String ftpPassword, List<RouteBinding> bindings) {
+        this(deviceId, baseUrl, host, ftpPort, ftpUser, ftpPassword, bindings, null);
+    }
 
     public List<RouteBinding> bindings() {
         return bindings == null ? List.of() : bindings;

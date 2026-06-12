@@ -1,12 +1,19 @@
 package com.proxyapp.connector;
 
+import com.proxyapp.routing.TcpProtocol;
+
 /** Where an outbound send goes, expressed per transport. */
 public sealed interface ChannelTarget {
 
     record HttpTarget(String url) implements ChannelTarget {
     }
 
-    record TcpTarget(String host, int port) implements ChannelTarget {
+    /** @param protocol effective wire protocol for this route; null = legacy framing */
+    record TcpTarget(String host, int port, TcpProtocol protocol) implements ChannelTarget {
+
+        public TcpTarget(String host, int port) {
+            this(host, port, null);
+        }
     }
 
     /**

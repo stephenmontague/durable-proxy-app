@@ -16,11 +16,25 @@ export interface ResolverConfig {
   patterns?: Record<string, string>;
 }
 
+/**
+ * TCP wire-protocol settings (com.proxyapp.routing.TcpProtocol). All string fields use
+ * WireString escape syntax (e.g. <VT>, \x1c). Null/absent everywhere = legacy behavior.
+ */
+export interface TcpProtocol {
+  startDelimiter?: string | null;
+  endDelimiter?: string | null;
+  ackReply?: string | null;
+  nakReply?: string | null;
+  expectedAck?: string | null;
+  awaitReply?: boolean | null; // null/undefined = true (wait for the reply)
+}
+
 export interface RouteBinding {
   messageType: string | null;
   transport: Transport;
   channel: Channel;
   resolver?: ResolverConfig | null;
+  tcpProtocol?: TcpProtocol | null;
 }
 
 export interface EdgeConfig {
@@ -31,6 +45,7 @@ export interface EdgeConfig {
   ftpUser?: string | null;
   ftpPassword?: string | null;
   bindings: RouteBinding[];
+  tcpProtocol?: TcpProtocol | null;
 }
 
 /** What the proxy reports back after each reconcile (com.proxyapp.control.AppliedStatus). */

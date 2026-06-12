@@ -16,9 +16,18 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { WireProtocolFields } from "@/components/routes/wire-protocol-fields";
 import { awaitConfigOutcome, postSignal } from "@/lib/actions";
+import { matchPreset, summarizeProtocol, TCP_PRESETS } from "@/lib/tcp-presets";
 import { DEVICE_TEMPLATES, materialize, type DeviceTemplateDef, type SiteValues } from "@/lib/templates";
-import type { EdgeConfig, ProxyControlState } from "@/lib/types";
+import type { EdgeConfig, ProxyControlState, TcpProtocol } from "@/lib/types";
 import { validateConfig } from "@/lib/validate";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +92,11 @@ export function DeviceWizard({
   const [site, setSite] = useState<SiteValues>(DEFAULT_SITE);
   const [channelOverrides, setChannelOverrides] = useState<Record<number, string>>({});
   const [showChannels, setShowChannels] = useState(false);
+  const [showWire, setShowWire] = useState(false);
+  const [devicePresetId, setDevicePresetId] = useState("default");
+  const [deviceProtocol, setDeviceProtocol] = useState<TcpProtocol | null>(null);
+  const [bindingPresetIds, setBindingPresetIds] = useState<Record<number, string>>({});
+  const [bindingProtocols, setBindingProtocols] = useState<Record<number, TcpProtocol>>({});
   const [applying, setApplying] = useState(false);
 
   // Reset on open; in edit mode jump straight to site values.
@@ -90,15 +104,32 @@ export function DeviceWizard({
     if (!open) return;
     setChannelOverrides({});
     setApplying(false);
+    setShowWire(false);
     if (editing) {
       setTemplate(null);
       setSite(siteFromConfig(editing));
       setShowChannels(true);
+      setDevicePresetId(matchPreset(editing.tcpProtocol));
+      setDeviceProtocol(editing.tcpProtocol ?? null);
+      const presetIds: Record<number, string> = {};
+      const protocols: Record<number, TcpProtocol> = {};
+      editing.bindings.forEach((b, i) => {
+        if (b.tcpProtocol != null) {
+          presetIds[i] = matchPreset(b.tcpProtocol);
+          protocols[i] = b.tcpProtocol;
+        }
+      });
+      setBindingPresetIds(presetIds);
+      setBindingProtocols(protocols);
       setStep(2);
     } else {
       setTemplate(DEVICE_TEMPLATES[0] ?? null);
       setSite(DEFAULT_SITE);
       setShowChannels(false);
+      setDevicePresetId("default");
+      setDeviceProtocol(null);
+      setBindingPresetIds({});
+      setBindingProtocols({});
       setStep(1);
     }
   }, [open, editing]);
@@ -127,8 +158,14 @@ export function DeviceWizard({
         base.bindings[i] = { ...base.bindings[i], channel: { ...base.bindings[i].channel, value } };
       }
     }
+    base.tcpProtocol = deviceProtocol;
+    base.bindings = base.bindings.map((b, i) => {
+      const override = bindingPresetIds[i] && bindingPresetIds[i] !== "inherit"
+        ? (bindingProtocols[i] ?? null) : null;
+      return override != null ? { ...b, tcpProtocol: override } : { ...b, tcpProtocol: null };
+    });
     return base;
-  }, [mode, editing, template, site, channelOverrides]);
+  }, [mode, editing, template, site, channelOverrides, deviceProtocol, bindingPresetIds, bindingProtocols]);
 
   const errors = useMemo(() => {
     if (!draft) return [];
@@ -299,6 +336,98 @@ export function DeviceWizard({
               )}
             </div>
 
+            {draft && draft.bindings.some((b) => b.transport === "TCP") && (
+              <div>
+                <button
+                  className="rule-label w-full cursor-pointer"
+                  onClick={() => setShowWire((s) => !s)}
+                >
+                  wire protocol · tcp {showWire ? "▾" : "▸"}
+                </button>
+                {showWire && (
+                  <div className="mt-2 flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="readout w-44 shrink-0 text-[11px] text-ink-soft">
+                        device default
+                      </span>
+                      <Select
+                        value={devicePresetId}
+                        onValueChange={(id) => {
+                          setDevicePresetId(id);
+                          const preset = TCP_PRESETS.find((p) => p.id === id);
+                          setDeviceProtocol(preset?.protocol ? { ...preset.protocol } : null);
+                        }}
+                      >
+                        <SelectTrigger size="sm" className="readout flex-1 text-[11px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TCP_PRESETS.map((p) => (
+                            <SelectItem key={p.id} value={p.id} className="readout text-[12px]">
+                              {p.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p className="text-[10px] leading-snug text-ink-faint">
+                      {TCP_PRESETS.find((p) => p.id === devicePresetId)?.description}
+                    </p>
+                    {deviceProtocol && (
+                      <WireProtocolFields value={deviceProtocol} onChange={setDeviceProtocol} />
+                    )}
+
+                    {draft.bindings.map((b, i) =>
+                      b.transport !== "TCP" ? null : (
+                        <div key={i} className="flex flex-col gap-2">
+                          <div className="flex items-center gap-3">
+                            <span className="readout w-44 shrink-0 truncate text-[11px]">
+                              {b.messageType ?? b.channel.value}
+                            </span>
+                            <Select
+                              value={bindingPresetIds[i] ?? "inherit"}
+                              onValueChange={(id) => {
+                                setBindingPresetIds({ ...bindingPresetIds, [i]: id });
+                                if (id !== "inherit") {
+                                  const preset = TCP_PRESETS.find((p) => p.id === id);
+                                  setBindingProtocols({
+                                    ...bindingProtocols,
+                                    [i]: preset?.protocol
+                                      ? { ...preset.protocol }
+                                      : { awaitReply: true },
+                                  });
+                                }
+                              }}
+                            >
+                              <SelectTrigger size="sm" className="readout flex-1 text-[11px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="inherit" className="readout text-[12px]">
+                                  Inherit device default
+                                </SelectItem>
+                                {TCP_PRESETS.filter((p) => p.id !== "default").map((p) => (
+                                  <SelectItem key={p.id} value={p.id} className="readout text-[12px]">
+                                    {p.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {bindingPresetIds[i] && bindingPresetIds[i] !== "inherit" && bindingProtocols[i] && (
+                            <WireProtocolFields
+                              value={bindingProtocols[i]}
+                              onChange={(p) => setBindingProtocols({ ...bindingProtocols, [i]: p })}
+                            />
+                          )}
+                        </div>
+                      ),
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-between">
               {mode === "template" ? (
                 <Button variant="secondary" className="btn-hard" onClick={() => setStep(1)}>
@@ -364,6 +493,26 @@ export function DeviceWizard({
                 })}
               </tbody>
             </table>
+
+            {draft.bindings.some((b) => b.transport === "TCP") && (
+              <div>
+                <div className="rule-label mb-1.5">tcp wire protocol</div>
+                <ul className="flex flex-col gap-0.5">
+                  {draft.bindings.map((b, i) =>
+                    b.transport !== "TCP" ? null : (
+                      <li key={i} className="readout flex items-baseline gap-2 text-[11px]">
+                        <span className="w-44 shrink-0 truncate font-medium">
+                          {b.messageType ?? b.channel.value}
+                        </span>
+                        <span className="text-ink-soft">
+                          {summarizeProtocol(b.tcpProtocol ?? draft.tcpProtocol)}
+                        </span>
+                      </li>
+                    ),
+                  )}
+                </ul>
+              </div>
+            )}
 
             {errors.length > 0 && (
               <div className="border border-err/40 bg-err/10 px-3 py-2">

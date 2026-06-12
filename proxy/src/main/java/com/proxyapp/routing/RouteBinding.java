@@ -9,12 +9,20 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  * <p>If {@code resolver} is set, this binding is a multi-type channel: {@code messageType}
  * may be null and inbound type resolution is delegated to the configured
  * {@link MessageTypeResolver} (opt-in, FTP folders only).
+ *
+ * <p>{@code tcpProtocol} (TCP bindings only) overrides the device-level wire protocol;
+ * null inherits the device's, which itself defaults to legacy framing.
  */
 public record RouteBinding(MessageType messageType, Transport transport, Channel channel,
-                           ResolverConfig resolver) {
+                           ResolverConfig resolver, TcpProtocol tcpProtocol) {
 
     public RouteBinding(MessageType messageType, Transport transport, Channel channel) {
-        this(messageType, transport, channel, null);
+        this(messageType, transport, channel, null, null);
+    }
+
+    public RouteBinding(MessageType messageType, Transport transport, Channel channel,
+                        ResolverConfig resolver) {
+        this(messageType, transport, channel, resolver, null);
     }
 
     @JsonIgnore
