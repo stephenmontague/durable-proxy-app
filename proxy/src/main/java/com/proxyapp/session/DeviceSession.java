@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
@@ -70,6 +71,7 @@ final class DeviceSession {
     private final byte[] expectReply;    // nullable: decoded expected ping reply
     private final byte[] sendExpectedAck; // ack an outbound send waits for (contains-match)
     private final boolean awaitSendReply; // false = fire-and-forget sends
+    private final TcpSession.Role role;   // CLIENT dials the device; SERVER accepts its dial-in
 
     // Liveness config (with defaults applied).
     private final Integer sendIntervalSec;
@@ -119,6 +121,7 @@ final class DeviceSession {
                 ? WireString.decode(p.expectedAck())
                 : "ACK".getBytes(StandardCharsets.ISO_8859_1);
         this.awaitSendReply = p == null || p.shouldAwaitReply();
+        this.role = config.session().role();
 
         TcpSession.Heartbeat hb = config.session().heartbeat();
         this.sendIntervalSec = hb == null ? null : hb.sendIntervalSec();
@@ -143,7 +146,7 @@ final class DeviceSession {
     }
 
     void start() {
-        connectExecutor.execute(this::runConnectLoop);
+        connectExecutor.execute(this::runSessionLoop);
         if (pingFrame != null) {
             long periodMs = sendIntervalSec * 1_000L;
             pingTask = scheduler.scheduleAtFixedRate(this::sendPing, periodMs, periodMs, TimeUnit.MILLISECONDS);
@@ -224,7 +227,16 @@ final class DeviceSession {
 
     // ---- connect / read loop (connect executor thread) ----
 
-    private void runConnectLoop() {
+    private void runSessionLoop() {
+        if (role == TcpSession.Role.SERVER) {
+            runServerLoop();
+        } else {
+            runClientLoop();
+        }
+    }
+
+    /** CLIENT: dial the device, reconnecting with backoff after any drop. */
+    private void runClientLoop() {
         long backoff = minBackoffMs;
         while (!closed) {
             Socket s = null;
@@ -257,6 +269,60 @@ final class DeviceSession {
         state = DeviceSessionState.DOWN;
     }
 
+    /**
+     * SERVER: bind a per-device listen port and accept the device's inbound connection, serving one
+     * connection at a time and re-accepting after a drop. (The shared listen-port / handshake mode
+     * is a documented future extension; this implements the recommended per-device port.)
+     */
+    private void runServerLoop() {
+        Integer listenPort = config.session().listenPort();
+        if (listenPort == null) {
+            log.warn("device {} SERVER session has no listenPort; shared listen-port / handshake mode "
+                    + "is not implemented yet — configure a listenPort. Link stays DOWN.",
+                    config.deviceId());
+            state = DeviceSessionState.DOWN;
+            return;
+        }
+        try (ServerSocket server = new ServerSocket(listenPort)) {
+            server.setSoTimeout(READ_IDLE_MS); // wake periodically so close() is noticed
+            log.info("device {} SERVER session listening on port {}", config.deviceId(), listenPort);
+            while (!closed) {
+                state = DeviceSessionState.CONNECTING; // awaiting the device to dial in
+                Socket s;
+                try {
+                    s = server.accept();
+                } catch (SocketTimeoutException e) {
+                    continue; // still waiting for the device — stay CONNECTING
+                } catch (IOException e) {
+                    if (!closed) {
+                        log.debug("device {} accept failed: {}", config.deviceId(), e.getMessage());
+                    }
+                    continue;
+                }
+                try {
+                    s.setSoTimeout(READ_IDLE_MS);
+                    onConnected(s);
+                    readLoop(s);
+                } catch (IOException e) {
+                    if (!closed) {
+                        log.debug("device {} server read ended: {}", config.deviceId(), e.getMessage());
+                    }
+                } finally {
+                    closeSocket(s);
+                    socket.compareAndSet(s, null);
+                    out.set(null);
+                    if (!closed) {
+                        state = DeviceSessionState.DOWN;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            log.error("device {} cannot bind SERVER listen port {}: {}",
+                    config.deviceId(), listenPort, e.getMessage());
+        }
+        state = DeviceSessionState.DOWN;
+    }
+
     private void onConnected(Socket s) throws IOException {
         socket.set(s);
         out.set(s.getOutputStream());
@@ -264,8 +330,7 @@ final class DeviceSession {
         consecutiveMisses.set(0);
         pingOutstanding = false;
         state = DeviceSessionState.UP;
-        log.info("device {} session UP ({}:{})",
-                config.deviceId(), config.host(), config.session().port());
+        log.info("device {} session UP ({})", config.deviceId(), s.getRemoteSocketAddress());
     }
 
     private void readLoop(Socket s) throws IOException {

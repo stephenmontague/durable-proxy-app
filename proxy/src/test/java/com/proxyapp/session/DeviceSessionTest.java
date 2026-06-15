@@ -10,6 +10,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -179,12 +180,36 @@ class DeviceSessionTest {
         }
     }
 
+    @Test
+    void serverRoleAcceptsAnIncomingDeviceConnection() throws Exception {
+        int listenPort = StubTcpServer.freePort();
+        DeviceSession session = serverSession(listenPort);
+        session.start();
+        try (Socket device = new Socket()) {
+            device.connect(new InetSocketAddress("127.0.0.1", listenPort), 2_000);
+            awaitState(session, DeviceSessionState.UP, 2_000);
+            // the device pushes an unsolicited frame over the same accepted socket
+            device.getOutputStream().write("STATUS\n".getBytes(StandardCharsets.ISO_8859_1));
+            device.getOutputStream().flush();
+            awaitTrue(() -> !inboundFrames.isEmpty(), 2_000);
+            assertThat(new String(inboundFrames.get(0), StandardCharsets.ISO_8859_1)).isEqualTo("STATUS");
+        }
+        session.close();
+    }
+
     // ---- helpers ----
 
     private DeviceSession clientSession(int port, TcpSession.Heartbeat hb, TcpProtocol protocol) {
         TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
                 port, null, null, hb, null);
         DeviceSessionConfig cfg = new DeviceSessionConfig("dev-1", "127.0.0.1", protocol, session);
+        return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200, 500, inboundFrames::add);
+    }
+
+    private DeviceSession serverSession(int listenPort) {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
+                null, listenPort, null, watchdog(60, 5), null);
+        DeviceSessionConfig cfg = new DeviceSessionConfig("dev-1", null, null, session);
         return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200, 500, inboundFrames::add);
     }
 

@@ -40,6 +40,13 @@ final class StubTcpServer implements AutoCloseable {
         return server.getLocalPort();
     }
 
+    /** An ephemeral port that was free a moment ago (small race window, fine for tests). */
+    static int freePort() throws IOException {
+        try (ServerSocket s = new ServerSocket(0)) {
+            return s.getLocalPort();
+        }
+    }
+
     private void acceptLoop() {
         while (!server.isClosed()) {
             Socket socket;

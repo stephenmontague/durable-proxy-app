@@ -3,6 +3,8 @@ package com.proxyapp.session;
 import com.proxyapp.routing.TcpSession;
 import org.junit.jupiter.api.Test;
 
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -111,10 +113,31 @@ class TcpSessionManagerTest {
         }
     }
 
+    @Test
+    void reconcileOpensAServerRoleSession() throws Exception {
+        int listenPort = StubTcpServer.freePort();
+        TcpSessionManager manager = new TcpSessionManager(500, 50, 200);
+        try {
+            manager.reconcile(List.of(serverCfg("dev-1", listenPort)));
+            try (Socket device = new Socket()) {
+                device.connect(new InetSocketAddress("127.0.0.1", listenPort), 2_000);
+                awaitSessionState(manager, "dev-1", "UP", 2_000);
+            }
+        } finally {
+            manager.shutdown();
+        }
+    }
+
     private static DeviceSessionConfig cfg(String deviceId, int port) {
         TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
                 port, null, null, new TcpSession.Heartbeat(null, null, null, null, 5, 3), null);
         return new DeviceSessionConfig(deviceId, "127.0.0.1", null, session);
+    }
+
+    private static DeviceSessionConfig serverCfg(String deviceId, int listenPort) {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
+                null, listenPort, null, new TcpSession.Heartbeat(null, null, null, null, 5, 3), null);
+        return new DeviceSessionConfig(deviceId, null, null, session);
     }
 
     private static void awaitSessionState(TcpSessionManager manager, String deviceId, String state,
