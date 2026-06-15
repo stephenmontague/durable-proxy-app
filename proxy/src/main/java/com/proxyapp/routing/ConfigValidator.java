@@ -52,6 +52,9 @@ public final class ConfigValidator {
             if (device.tcpProtocol() != null) {
                 validateTcpProtocol(id + ": device tcpProtocol", device.tcpProtocol(), errors);
             }
+            if (device.tcpSession() != null) {
+                validateTcpSession(id + ": tcpSession", device, device.tcpSession(), errors);
+            }
             for (RouteBinding binding : device.bindings()) {
                 validateBinding(typeDirections, pool, inboundChannelOwners, device, binding, errors);
             }
@@ -173,6 +176,68 @@ public final class ConfigValidator {
         String error = WireString.validate(value);
         if (error != null) {
             errors.add(prefix + "." + field + ": " + error);
+        }
+    }
+
+    /**
+     * Persistent-session rules, applied only in PERSISTENT mode. Mirrored verbatim in the
+     * management UI's validate.ts — message text must stay identical. CLIENT needs host+port;
+     * SERVER needs listenPort or a handshake id; a persistent session needs at least one liveness
+     * mechanism; all heartbeat WireString fields must parse.
+     */
+    private static void validateTcpSession(String prefix, EdgeConfig device, TcpSession s,
+                                           List<String> errors) {
+        if (s.mode() != TcpSession.Mode.PERSISTENT) {
+            return; // PER_MESSAGE / unset = today's connect-per-message behavior, nothing to check
+        }
+        if (s.role() == null) {
+            errors.add(prefix + ": PERSISTENT session requires a role (CLIENT or SERVER)");
+        } else if (s.role() == TcpSession.Role.CLIENT) {
+            if (device.host() == null || device.host().isBlank()) {
+                errors.add(prefix + ": CLIENT role requires the device host");
+            }
+            if (s.port() == null) {
+                errors.add(prefix + ": CLIENT role requires a port");
+            } else if (s.port() < 1 || s.port() > 65535) {
+                errors.add(prefix + ".port must be between 1 and 65535");
+            }
+        } else {
+            if (s.listenPort() == null && (s.handshakeId() == null || s.handshakeId().isBlank())) {
+                errors.add(prefix + ": SERVER role requires listenPort or handshakeId");
+            }
+            if (s.listenPort() != null && (s.listenPort() < 1 || s.listenPort() > 65535)) {
+                errors.add(prefix + ".listenPort must be between 1 and 65535");
+            }
+        }
+
+        TcpSession.Heartbeat hb = s.heartbeat();
+        boolean hasPing = hb != null && hb.hasOutboundPing();
+        boolean hasWatchdog = hb != null && hb.hasInboundWatchdog();
+        if (!hasPing && !hasWatchdog) {
+            errors.add(prefix + ": PERSISTENT session requires at least one liveness mechanism "
+                    + "(heartbeat.sendIntervalSec or heartbeat.expectInboundSec)");
+        }
+        if (hb != null) {
+            String hbPrefix = prefix + ".heartbeat";
+            checkWireField(hbPrefix, "sendPayload", hb.sendPayload(), errors);
+            checkWireField(hbPrefix, "expectReply", hb.expectReply(), errors);
+            checkPositive(hbPrefix, "sendIntervalSec", hb.sendIntervalSec(), errors);
+            checkPositive(hbPrefix, "replyTimeoutMs", hb.replyTimeoutMs(), errors);
+            checkPositive(hbPrefix, "expectInboundSec", hb.expectInboundSec(), errors);
+            checkPositive(hbPrefix, "missThreshold", hb.missThreshold(), errors);
+            if (hasPing && hb.sendPayload() == null) {
+                errors.add(hbPrefix + ": sendIntervalSec requires sendPayload");
+            }
+            if (hb.expectReply() != null && !hasPing) {
+                errors.add(hbPrefix + ": expectReply requires sendIntervalSec");
+            }
+        }
+    }
+
+    private static void checkPositive(String prefix, String field, Integer value,
+                                      List<String> errors) {
+        if (value != null && value <= 0) {
+            errors.add(prefix + "." + field + " must be positive");
         }
     }
 

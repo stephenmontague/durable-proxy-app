@@ -110,3 +110,155 @@ describe("validateConfig tcpProtocol rules", () => {
     ]);
   });
 });
+
+// Persistent TCP session vectors mirroring ConfigValidatorTest.java — error strings must match
+// the Java validator character-for-character.
+describe("validateConfig tcpSession rules", () => {
+  it("valid persistent CLIENT session passes", () => {
+    const d = device({
+      host: "10.0.0.5",
+      tcpSession: {
+        mode: "PERSISTENT",
+        role: "CLIENT",
+        port: 9001,
+        heartbeat: {
+          sendIntervalSec: 30,
+          sendPayload: "<VT>PING<FS>",
+          expectReply: "PONG",
+          replyTimeoutMs: 5000,
+          expectInboundSec: 60,
+          missThreshold: 3,
+        },
+      },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([]);
+  });
+
+  it("valid persistent SERVER watchdog session passes", () => {
+    const d = device({
+      host: null,
+      tcpSession: {
+        mode: "PERSISTENT",
+        role: "SERVER",
+        listenPort: 6005,
+        heartbeat: { expectInboundSec: 60, missThreshold: 2 },
+      },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([]);
+  });
+
+  it("PER_MESSAGE session is not validated", () => {
+    const d = device({ host: null, tcpSession: { mode: "PER_MESSAGE" } });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([]);
+  });
+
+  it("persistent session requires a role", () => {
+    const d = device({
+      host: "10.0.0.5",
+      tcpSession: {
+        mode: "PERSISTENT",
+        heartbeat: { sendIntervalSec: 30, sendPayload: "PING", missThreshold: 3 },
+      },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession: PERSISTENT session requires a role (CLIENT or SERVER)",
+    ]);
+  });
+
+  it("CLIENT session requires host and port", () => {
+    const d = device({
+      host: null,
+      tcpSession: {
+        mode: "PERSISTENT",
+        role: "CLIENT",
+        heartbeat: { sendIntervalSec: 30, sendPayload: "PING", missThreshold: 3 },
+      },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession: CLIENT role requires the device host",
+      "a: tcpSession: CLIENT role requires a port",
+    ]);
+  });
+
+  it("SERVER session requires listenPort or handshakeId", () => {
+    const d = device({
+      tcpSession: {
+        mode: "PERSISTENT",
+        role: "SERVER",
+        heartbeat: { expectInboundSec: 60, missThreshold: 2 },
+      },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession: SERVER role requires listenPort or handshakeId",
+    ]);
+  });
+
+  it("persistent session requires at least one liveness mechanism", () => {
+    const d = device({
+      host: "10.0.0.5",
+      tcpSession: { mode: "PERSISTENT", role: "CLIENT", port: 9001 },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession: PERSISTENT session requires at least one liveness mechanism (heartbeat.sendIntervalSec or heartbeat.expectInboundSec)",
+    ]);
+  });
+
+  it("heartbeat WireString fields must parse", () => {
+    const d = device({
+      host: "10.0.0.5",
+      tcpSession: {
+        mode: "PERSISTENT",
+        role: "CLIENT",
+        port: 9001,
+        heartbeat: { sendIntervalSec: 30, sendPayload: "<NOPE>", missThreshold: 3 },
+      },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession.heartbeat.sendPayload: unknown token '<NOPE>' at position 0",
+    ]);
+  });
+
+  it("outbound ping requires a payload", () => {
+    const d = device({
+      host: "10.0.0.5",
+      tcpSession: {
+        mode: "PERSISTENT",
+        role: "CLIENT",
+        port: 9001,
+        heartbeat: { sendIntervalSec: 30, missThreshold: 3 },
+      },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession.heartbeat: sendIntervalSec requires sendPayload",
+    ]);
+  });
+
+  it("expectReply requires an outbound ping", () => {
+    const d = device({
+      tcpSession: {
+        mode: "PERSISTENT",
+        role: "SERVER",
+        listenPort: 6005,
+        heartbeat: { expectReply: "PONG", expectInboundSec: 60, missThreshold: 2 },
+      },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession.heartbeat: expectReply requires sendIntervalSec",
+    ]);
+  });
+
+  it("heartbeat intervals must be positive", () => {
+    const d = device({
+      host: "10.0.0.5",
+      tcpSession: {
+        mode: "PERSISTENT",
+        role: "CLIENT",
+        port: 9001,
+        heartbeat: { sendIntervalSec: 0, sendPayload: "PING", missThreshold: 3 },
+      },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession.heartbeat.sendIntervalSec must be positive",
+    ]);
+  });
+});

@@ -16,14 +16,22 @@ import java.util.List;
  * @param bindings    per-message-type channel bindings
  * @param tcpProtocol device-default TCP wire protocol; null = legacy. Individual TCP
  *                    bindings may override via {@link RouteBinding#tcpProtocol()}.
+ * @param tcpSession  optional persistent-TCP-session config (a heartbeated long-lived socket);
+ *                    null or {@link TcpSession.Mode#PER_MESSAGE} = today's connect-per-message.
  */
 public record EdgeConfig(String deviceId, String baseUrl, String host, Integer ftpPort,
                          String ftpUser, String ftpPassword, List<RouteBinding> bindings,
-                         TcpProtocol tcpProtocol) {
+                         TcpProtocol tcpProtocol, TcpSession tcpSession) {
 
     public EdgeConfig(String deviceId, String baseUrl, String host, Integer ftpPort,
                       String ftpUser, String ftpPassword, List<RouteBinding> bindings) {
-        this(deviceId, baseUrl, host, ftpPort, ftpUser, ftpPassword, bindings, null);
+        this(deviceId, baseUrl, host, ftpPort, ftpUser, ftpPassword, bindings, null, null);
+    }
+
+    public EdgeConfig(String deviceId, String baseUrl, String host, Integer ftpPort,
+                      String ftpUser, String ftpPassword, List<RouteBinding> bindings,
+                      TcpProtocol tcpProtocol) {
+        this(deviceId, baseUrl, host, ftpPort, ftpUser, ftpPassword, bindings, tcpProtocol, null);
     }
 
     public List<RouteBinding> bindings() {

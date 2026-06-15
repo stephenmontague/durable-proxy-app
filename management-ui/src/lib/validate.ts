@@ -1,4 +1,11 @@
-import type { CatalogEntryDto, Direction, EdgeConfig, RouteBinding, TcpProtocol } from "@/lib/types";
+import type {
+  CatalogEntryDto,
+  Direction,
+  EdgeConfig,
+  RouteBinding,
+  TcpProtocol,
+  TcpSession,
+} from "@/lib/types";
 import { validateWireString } from "@/lib/wire-string";
 
 // Mirrors com.proxyapp.routing.ConfigValidator so the wizard can reject a bad config
@@ -32,6 +39,9 @@ export function validateConfig(
     deviceIds.add(device.deviceId);
     if (device.tcpProtocol != null) {
       validateTcpProtocol(`${device.deviceId}: device tcpProtocol`, device.tcpProtocol, errors);
+    }
+    if (device.tcpSession != null) {
+      validateTcpSession(`${device.deviceId}: tcpSession`, device, device.tcpSession, errors);
     }
     for (const binding of device.bindings) {
       validateBinding(typeDirections, pool, inboundChannelOwners, device, binding, errors);
@@ -156,6 +166,71 @@ function checkWireField(
   const error = validateWireString(value);
   if (error != null) {
     errors.push(`${prefix}.${field}: ${error}`);
+  }
+}
+
+// Persistent-session rules — mirrors ConfigValidator.validateTcpSession verbatim. Applied only
+// in PERSISTENT mode; error text must match the Java side character-for-character.
+function validateTcpSession(
+  prefix: string,
+  device: EdgeConfig,
+  s: TcpSession,
+  errors: string[],
+): void {
+  if (s.mode !== "PERSISTENT") return;
+  if (s.role == null) {
+    errors.push(`${prefix}: PERSISTENT session requires a role (CLIENT or SERVER)`);
+  } else if (s.role === "CLIENT") {
+    if (!device.host || device.host.trim() === "") {
+      errors.push(`${prefix}: CLIENT role requires the device host`);
+    }
+    if (s.port == null) {
+      errors.push(`${prefix}: CLIENT role requires a port`);
+    } else if (s.port < 1 || s.port > 65535) {
+      errors.push(`${prefix}.port must be between 1 and 65535`);
+    }
+  } else {
+    if (s.listenPort == null && (s.handshakeId == null || s.handshakeId.trim() === "")) {
+      errors.push(`${prefix}: SERVER role requires listenPort or handshakeId`);
+    }
+    if (s.listenPort != null && (s.listenPort < 1 || s.listenPort > 65535)) {
+      errors.push(`${prefix}.listenPort must be between 1 and 65535`);
+    }
+  }
+
+  const hb = s.heartbeat;
+  const hasPing = hb != null && hb.sendIntervalSec != null;
+  const hasWatchdog = hb != null && hb.expectInboundSec != null;
+  if (!hasPing && !hasWatchdog) {
+    errors.push(
+      `${prefix}: PERSISTENT session requires at least one liveness mechanism (heartbeat.sendIntervalSec or heartbeat.expectInboundSec)`,
+    );
+  }
+  if (hb != null) {
+    const hbPrefix = `${prefix}.heartbeat`;
+    checkWireField(hbPrefix, "sendPayload", hb.sendPayload, errors);
+    checkWireField(hbPrefix, "expectReply", hb.expectReply, errors);
+    checkPositive(hbPrefix, "sendIntervalSec", hb.sendIntervalSec, errors);
+    checkPositive(hbPrefix, "replyTimeoutMs", hb.replyTimeoutMs, errors);
+    checkPositive(hbPrefix, "expectInboundSec", hb.expectInboundSec, errors);
+    checkPositive(hbPrefix, "missThreshold", hb.missThreshold, errors);
+    if (hasPing && hb.sendPayload == null) {
+      errors.push(`${hbPrefix}: sendIntervalSec requires sendPayload`);
+    }
+    if (hb.expectReply != null && !hasPing) {
+      errors.push(`${hbPrefix}: expectReply requires sendIntervalSec`);
+    }
+  }
+}
+
+function checkPositive(
+  prefix: string,
+  field: string,
+  value: number | null | undefined,
+  errors: string[],
+): void {
+  if (value != null && value <= 0) {
+    errors.push(`${prefix}.${field} must be positive`);
   }
 }
 

@@ -167,4 +167,119 @@ class ConfigValidatorTest {
         List<String> errors = ConfigValidator.validate(catalog, pool, List.of(device));
         assertThat(errors).singleElement().asString().contains("only supported on FTP");
     }
+
+    // ---- Persistent TCP session (TcpSession) rules. Mirrored in validate.test.ts. ----
+
+    @Test
+    void validPersistentClientSessionPasses() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null,
+                new TcpSession.Heartbeat(30, "<VT>PING<FS>", "PONG", 5000, 60, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void validPersistentServerWatchdogSessionPasses() {
+        // SERVER role, inbound watchdog only (no outbound ping), no device host needed
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
+                null, 6005, null, new TcpSession.Heartbeat(null, null, null, null, 60, 2), null);
+        EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void perMessageSessionIsNotValidated() {
+        // PER_MESSAGE short-circuits: no role / no liveness is ignored (that's today's behavior)
+        TcpSession session = new TcpSession(TcpSession.Mode.PER_MESSAGE, null, null, null, null,
+                null, null);
+        EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void persistentSessionRequiresRole() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, null, null, null, null,
+                new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: PERSISTENT session requires a role (CLIENT or SERVER)");
+    }
+
+    @Test
+    void clientSessionRequiresHostAndPort() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                null, null, null, new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).containsExactly(
+                "a: tcpSession: CLIENT role requires the device host",
+                "a: tcpSession: CLIENT role requires a port");
+    }
+
+    @Test
+    void serverSessionRequiresListenPortOrHandshake() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
+                null, null, null, new TcpSession.Heartbeat(null, null, null, null, 60, 2), null);
+        EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: SERVER role requires listenPort or handshakeId");
+    }
+
+    @Test
+    void persistentSessionRequiresAtLeastOneLivenessMechanism() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, null, null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).containsExactly(
+                "a: tcpSession: PERSISTENT session requires at least one liveness mechanism "
+                        + "(heartbeat.sendIntervalSec or heartbeat.expectInboundSec)");
+    }
+
+    @Test
+    void heartbeatWireFieldsMustParse() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, new TcpSession.Heartbeat(30, "<NOPE>", null, null, null, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).containsExactly(
+                "a: tcpSession.heartbeat.sendPayload: unknown token '<NOPE>' at position 0");
+    }
+
+    @Test
+    void outboundPingRequiresPayload() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, new TcpSession.Heartbeat(30, null, null, null, null, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession.heartbeat: sendIntervalSec requires sendPayload");
+    }
+
+    @Test
+    void expectReplyRequiresOutboundPing() {
+        // watchdog provides liveness; an expectReply with no ping to answer is meaningless
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
+                null, 6005, null, new TcpSession.Heartbeat(null, null, "PONG", null, 60, 2), null);
+        EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession.heartbeat: expectReply requires sendIntervalSec");
+    }
+
+    @Test
+    void heartbeatIntervalsMustBePositive() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, new TcpSession.Heartbeat(0, "PING", null, null, null, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession.heartbeat.sendIntervalSec must be positive");
+    }
 }
