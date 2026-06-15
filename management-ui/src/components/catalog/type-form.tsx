@@ -67,12 +67,15 @@ export function TypeForm({
   state,
   editing,
   onApplied,
+  onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   state: ProxyControlState;
   editing: CatalogEntryDto | null;
   onApplied: () => void;
+  /** Called with the type name after a brand-new type is added (not on edit). */
+  onCreated?: (type: string) => void;
 }) {
   const isEdit = editing != null;
   const [draft, setDraft] = useState<CatalogEntryDto>(EMPTY);
@@ -114,6 +117,7 @@ export function TypeForm({
           description: "The proxy rebuilds its catalog on the next reconcile.",
         });
         onApplied();
+        if (!isEdit) onCreated?.(entry.type);
         onOpenChange(false);
       } else {
         toast.error("Rejected by the control workflow", { description: outcome.message });

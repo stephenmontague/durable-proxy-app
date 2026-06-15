@@ -2,7 +2,7 @@
 
 // Build-from-scratch binding editor: pick any catalog message type, a transport, and the
 // channel. This is what makes the wizard domain-agnostic — the built-in template is just one
-// starting point; here an operator wires up whatever types they defined on the Catalog page.
+// starting point; here an operator wires up whatever types they defined in the Message types panel.
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,10 +42,13 @@ export function CustomBindingsEditor({
   available,
   bindings,
   onChange,
+  onDefineNewType,
 }: {
   available: AvailableType[];
   bindings: RouteBinding[];
   onChange: (bindings: RouteBinding[]) => void;
+  /** Open the inline "define a new message type" form for the binding at this index. */
+  onDefineNewType: (index: number) => void;
 }) {
   const firstType = available[0]?.type ?? "";
 
@@ -66,7 +69,9 @@ export function CustomBindingsEditor({
           <div key={i} className="flex items-center gap-2">
             <Select
               value={b.messageType ?? ""}
-              onValueChange={(type) => update(i, { messageType: type })}
+              onValueChange={(type) =>
+                type === "__new__" ? onDefineNewType(i) : update(i, { messageType: type })
+              }
             >
               <SelectTrigger size="sm" className="readout w-48 text-[11px]">
                 <SelectValue placeholder="message type" />
@@ -77,6 +82,9 @@ export function CustomBindingsEditor({
                     {a.type}
                   </SelectItem>
                 ))}
+                <SelectItem value="__new__" className="readout text-[12px] text-signal">
+                  + Define new type…
+                </SelectItem>
               </SelectContent>
             </Select>
             <span className="readout w-20 shrink-0 text-[9px] uppercase tracking-[0.1em] text-ink-faint">

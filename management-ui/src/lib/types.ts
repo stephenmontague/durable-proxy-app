@@ -12,7 +12,7 @@ export const CODECS: CodecName[] = ["json", "xml", "raw"];
 
 /**
  * One operator-defined message type (com.proxyapp.control.CatalogEntryDto). Edited via the
- * Catalog page; lives in the control workflow state, no longer hardcoded in the proxy profile.
+ * Config page; lives in the control workflow state, no longer hardcoded in the proxy profile.
  */
 export interface CatalogEntryDto {
   type: string;

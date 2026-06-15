@@ -13,22 +13,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { usePoll } from "@/hooks/use-poll";
 import { awaitConfigOutcome, postSignal } from "@/lib/actions";
 import { DEVICE_FLEET_CATALOG } from "@/lib/starter-catalog";
-import type { CatalogEntryDto, ControlStateResponse } from "@/lib/types";
+import type { CatalogEntryDto, ProxyControlState } from "@/lib/types";
 
-export default function CatalogPage() {
-  const control = usePoll<ControlStateResponse>("/api/control/state", 3000);
+/**
+ * Message-catalog management: the types this install can route. Lives on the Config page
+ * above the device list, so the define-before-bind dependency is visible — a type must exist
+ * here before a device below can bind it.
+ */
+export function MessageTypesPanel({
+  state,
+  onApplied,
+}: {
+  state: ProxyControlState;
+  onApplied: () => void;
+}) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CatalogEntryDto | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const state = control.data?.state;
-
   const importProfile = async () => {
-    if (!state) return;
     setBusy(true);
     try {
       const prevVersion = state.version;
@@ -41,7 +47,7 @@ export default function CatalogPage() {
       } else {
         toast.error("Import rejected", { description: outcome.message });
       }
-      control.refresh();
+      onApplied();
     } catch (e) {
       toast.error("Import failed", { description: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -50,7 +56,6 @@ export default function CatalogPage() {
   };
 
   const removeType = async (typeName: string) => {
-    if (!state) return;
     setBusy(true);
     try {
       const prevVersion = state.version;
@@ -62,7 +67,7 @@ export default function CatalogPage() {
         // The workflow rejects a type that's still bound to a device — surface why.
         toast.error("Remove rejected", { description: outcome.message });
       }
-      control.refresh();
+      onApplied();
     } catch (e) {
       toast.error("Remove failed", { description: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -71,29 +76,20 @@ export default function CatalogPage() {
     }
   };
 
-  if (!state) {
-    return (
-      <p className="readout py-10 text-center text-[12px] text-ink-faint">
-        {control.error ? `cannot reach Temporal: ${control.error}` : "loading control state…"}
-      </p>
-    );
-  }
-
   const entries = state.catalogEntries ?? [];
   const profileTypeCount = Object.keys(state.typeDirections ?? {}).length;
   const usesProfileCatalog = entries.length === 0;
 
   return (
-    <div className="flex flex-col gap-7">
+    <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-mono text-[15px] font-semibold uppercase tracking-[0.14em]">
-            Message catalog
-          </h1>
+          <h2 className="font-mono text-[13px] font-semibold uppercase tracking-[0.14em]">
+            Message types
+          </h2>
           <p className="mt-1 max-w-2xl text-[12px] text-ink-soft">
-            Every message type this install can route — its direction, wire codec, and (for
-            inbound) the cloud endpoint. Edits ride Temporal like all config; the proxy rebuilds
-            its catalog on the next reconcile, no restart.
+            What this install can route — direction, wire codec, and (for inbound) the cloud
+            endpoint. A type must exist here before a device below can bind it.
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -193,7 +189,7 @@ export default function CatalogPage() {
         onOpenChange={setFormOpen}
         state={state}
         editing={editing}
-        onApplied={control.refresh}
+        onApplied={onApplied}
       />
 
       <Dialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
@@ -204,8 +200,8 @@ export default function CatalogPage() {
             </DialogTitle>
             <DialogDescription className="text-[13px]">
               The proxy stops routing it on the next reconcile. If any device is still bound to
-              this type the control workflow rejects the removal — unbind it on the Routes page
-              first.
+              this type the control workflow rejects the removal — unbind it from the device
+              below first.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -223,6 +219,6 @@ export default function CatalogPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </section>
   );
 }

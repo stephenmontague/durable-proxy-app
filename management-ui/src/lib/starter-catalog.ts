@@ -1,7 +1,7 @@
 import type { CatalogEntryDto } from "@/lib/types";
 
 // The reference device-fleet catalog, mirroring com.proxyapp.profile.DeviceFleetProfile. Used by
-// the Catalog page's "Import starter profile" action to seed a fresh (or pre-Part-3) install. It's
+// the Config page's "Import starter profile" action to seed a fresh (or pre-Part-3) install. It's
 // only a starting point — operators edit freely afterward, and can define entirely different types
 // for any domain. Keep in sync with DeviceFleetProfile.catalog() so an import matches what the
 // proxy boots with.

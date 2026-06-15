@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TypeForm } from "@/components/catalog/type-form";
 import { CustomBindingsEditor, type AvailableType } from "@/components/routes/custom-bindings";
 import { WireProtocolFields } from "@/components/routes/wire-protocol-fields";
 import { awaitConfigOutcome, postSignal } from "@/lib/actions";
@@ -93,6 +94,9 @@ export function DeviceWizard({
   // Build-from-scratch path: no template, operator picks catalog types directly.
   const [custom, setCustom] = useState(false);
   const [customBindings, setCustomBindings] = useState<RouteBinding[]>([]);
+  // Inline "define a new message type" form, opened from a binding row.
+  const [typeFormOpen, setTypeFormOpen] = useState(false);
+  const [definingForIndex, setDefiningForIndex] = useState<number | null>(null);
   const [site, setSite] = useState<SiteValues>(DEFAULT_SITE);
   const [channelOverrides, setChannelOverrides] = useState<Record<number, string>>({});
   const [showChannels, setShowChannels] = useState(false);
@@ -227,6 +231,7 @@ export function DeviceWizard({
   }, [state.catalogEntries, state.typeDirections]);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto border-ink sm:max-w-2xl">
         <DialogHeader>
@@ -365,6 +370,10 @@ export function DeviceWizard({
                   available={availableTypes}
                   bindings={customBindings}
                   onChange={setCustomBindings}
+                  onDefineNewType={(i) => {
+                    setDefiningForIndex(i);
+                    setTypeFormOpen(true);
+                  }}
                 />
               </div>
             ) : (
@@ -601,5 +610,23 @@ export function DeviceWizard({
         )}
       </DialogContent>
     </Dialog>
+
+      {/* Inline "define a new message type" — stacks above the wizard; on create it
+          auto-selects the new type in the binding row that opened it. */}
+      <TypeForm
+        open={typeFormOpen}
+        onOpenChange={setTypeFormOpen}
+        state={state}
+        editing={null}
+        onApplied={onApplied}
+        onCreated={(type) =>
+          setCustomBindings((rows) =>
+            rows.map((row, i) =>
+              i === definingForIndex ? { ...row, messageType: type } : row,
+            ),
+          )
+        }
+      />
+    </>
   );
 }

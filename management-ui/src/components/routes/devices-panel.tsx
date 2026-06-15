@@ -14,22 +14,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { usePoll } from "@/hooks/use-poll";
 import { awaitConfigOutcome, postSignal } from "@/lib/actions";
-import type { ControlStateResponse, EdgeConfig } from "@/lib/types";
+import type { EdgeConfig, ProxyControlState } from "@/lib/types";
 
-export default function RoutesPage() {
-  const control = usePoll<ControlStateResponse>("/api/control/state", 3000);
+/**
+ * Edge devices and their routing bindings. Lives on the Config page below the message-types
+ * panel — each binding ties a type (from that panel) to a transport + channel on this device.
+ */
+export function DevicesPanel({
+  state,
+  onApplied,
+}: {
+  state: ProxyControlState;
+  onApplied: () => void;
+}) {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editing, setEditing] = useState<EdgeConfig | null>(null);
   const [jsonOpen, setJsonOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
 
-  const state = control.data?.state;
-
   const removeDevice = async (deviceId: string) => {
-    if (!state) return;
     setRemoveBusy(true);
     try {
       const prevVersion = state.version;
@@ -40,7 +45,7 @@ export default function RoutesPage() {
       } else {
         toast.error("Remove rejected", { description: outcome.message });
       }
-      control.refresh();
+      onApplied();
     } catch (e) {
       toast.error("Remove failed", { description: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -49,24 +54,16 @@ export default function RoutesPage() {
     }
   };
 
-  if (!state) {
-    return (
-      <p className="readout py-10 text-center text-[12px] text-ink-faint">
-        {control.error ? `cannot reach Temporal: ${control.error}` : "loading control state…"}
-      </p>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-7">
+    <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-mono text-[15px] font-semibold uppercase tracking-[0.14em]">
-            Routing config
-          </h1>
+          <h2 className="font-mono text-[13px] font-semibold uppercase tracking-[0.14em]">
+            Devices
+          </h2>
           <p className="mt-1 text-[12px] text-ink-soft">
-            Desired state v{state.version} · changes go live with no restart — the proxy
-            reconciles within seconds.
+            Desired state v{state.version} · each binding routes a message type over a transport
+            and channel; changes go live with no restart.
           </p>
         </div>
         <div className="flex gap-2">
@@ -169,13 +166,13 @@ export default function RoutesPage() {
         onOpenChange={setWizardOpen}
         state={state}
         editing={editing}
-        onApplied={control.refresh}
+        onApplied={onApplied}
       />
       <JsonEditorDialog
         open={jsonOpen}
         onOpenChange={setJsonOpen}
         state={state}
-        onApplied={control.refresh}
+        onApplied={onApplied}
       />
 
       <Dialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
@@ -204,6 +201,6 @@ export default function RoutesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </section>
   );
 }
