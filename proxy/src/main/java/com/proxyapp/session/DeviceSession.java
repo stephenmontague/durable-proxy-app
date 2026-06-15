@@ -23,6 +23,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * One persistent connection to a device. CLIENT role only for now: the proxy dials the device and
@@ -60,6 +61,7 @@ final class DeviceSession {
     private final long minBackoffMs;
     private final long maxBackoffMs;
     private final long sendAckTimeoutMs;
+    private final Consumer<byte[]> inboundSink; // unsolicited device→cloud frames go here
 
     // Framing + heartbeat payloads, decoded once.
     private final byte[] startDelim;     // nullable
@@ -96,7 +98,8 @@ final class DeviceSession {
 
     DeviceSession(DeviceSessionConfig config, ExecutorService connectExecutor,
                   ScheduledExecutorService scheduler, int connectTimeoutMs,
-                  long minBackoffMs, long maxBackoffMs, long sendAckTimeoutMs) {
+                  long minBackoffMs, long maxBackoffMs, long sendAckTimeoutMs,
+                  Consumer<byte[]> inboundSink) {
         this.config = config;
         this.connectExecutor = connectExecutor;
         this.scheduler = scheduler;
@@ -104,6 +107,7 @@ final class DeviceSession {
         this.minBackoffMs = minBackoffMs;
         this.maxBackoffMs = maxBackoffMs;
         this.sendAckTimeoutMs = sendAckTimeoutMs;
+        this.inboundSink = inboundSink;
 
         TcpProtocol p = config.protocol();
         this.startDelim = (p != null && p.startDelimiter() != null)
@@ -320,7 +324,13 @@ final class DeviceSession {
             pingOutstanding = false;
             return;
         }
-        // Phase 4: frames that aren't acks or heartbeat replies become DeliverToCloud.
+        // Unsolicited device -> cloud frame: hand to the inbound sink (-> DeliverToCloud). A failed
+        // enqueue must not drop the link, so swallow and let the device re-send if it retries.
+        try {
+            inboundSink.accept(frame);
+        } catch (RuntimeException e) {
+            log.warn("device {} inbound enqueue failed: {}", config.deviceId(), e.getMessage());
+        }
     }
 
     // ---- heartbeat + liveness (scheduler threads) ----

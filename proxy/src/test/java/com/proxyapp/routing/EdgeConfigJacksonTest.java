@@ -21,7 +21,8 @@ class EdgeConfigJacksonTest {
         TcpSession session = new TcpSession(
                 TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT, 9001, null, null,
                 new TcpSession.Heartbeat(30, "<VT>PING<FS>", "PONG", 5000, 60, 3),
-                new TcpSession.Correlation(TcpSession.Correlation.Strategy.CORRELATION_ID, "msgId", null));
+                new TcpSession.Correlation(TcpSession.Correlation.Strategy.CORRELATION_ID, "msgId", null),
+                "CONFIG_ACK");
         EdgeConfig original = new EdgeConfig("gateway-1", null, "10.0.0.5", null, null, null,
                 List.of(new RouteBinding(MessageType.of("CONFIG_UPDATE"), Transport.TCP, Channel.port(9001))),
                 null, session);

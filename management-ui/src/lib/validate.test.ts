@@ -261,4 +261,33 @@ describe("validateConfig tcpSession rules", () => {
       "a: tcpSession.heartbeat.sendIntervalSec must be positive",
     ]);
   });
+
+  it("valid inboundType (EDGE_TO_CLOUD) passes", () => {
+    const d = device({ host: "10.0.0.5", tcpSession: persistentClient("CONFIG_ACK") });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([]);
+  });
+
+  it("unknown inboundType is rejected", () => {
+    const d = device({ host: "10.0.0.5", tcpSession: persistentClient("MYSTERY") });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession: unknown inboundType 'MYSTERY'",
+    ]);
+  });
+
+  it("inboundType must be EDGE_TO_CLOUD", () => {
+    const d = device({ host: "10.0.0.5", tcpSession: persistentClient("DEVICE_COMMAND") });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession: inboundType 'DEVICE_COMMAND' must be an EDGE_TO_CLOUD type",
+    ]);
+  });
 });
+
+function persistentClient(inboundType: string) {
+  return {
+    mode: "PERSISTENT" as const,
+    role: "CLIENT" as const,
+    port: 9001,
+    heartbeat: { sendIntervalSec: 30, sendPayload: "PING", missThreshold: 3 },
+    inboundType,
+  };
+}

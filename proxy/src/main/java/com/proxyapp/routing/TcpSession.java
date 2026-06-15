@@ -22,9 +22,19 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  *                    first-frame handshake when several devices share one listen port
  * @param heartbeat   liveness config (outbound ping and/or inbound watchdog)
  * @param correlation request/response matching over the one shared socket; null = single-in-flight
+ * @param inboundType message type for unsolicited device→cloud frames on this socket (must be an
+ *                    EDGE_TO_CLOUD type); null = none (a multi-type socket would instead resolve
+ *                    each frame via a {@link MessageTypeResolver})
  */
 public record TcpSession(Mode mode, Role role, Integer port, Integer listenPort,
-                         String handshakeId, Heartbeat heartbeat, Correlation correlation) {
+                         String handshakeId, Heartbeat heartbeat, Correlation correlation,
+                         String inboundType) {
+
+    /** Common case / back-compat: no unsolicited-inbound type configured. */
+    public TcpSession(Mode mode, Role role, Integer port, Integer listenPort,
+                      String handshakeId, Heartbeat heartbeat, Correlation correlation) {
+        this(mode, role, port, listenPort, handshakeId, heartbeat, correlation, null);
+    }
 
     public enum Mode { PER_MESSAGE, PERSISTENT }
 

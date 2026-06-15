@@ -34,6 +34,7 @@ class DeviceSessionTest {
 
     private ExecutorService connectExecutor;
     private ScheduledExecutorService scheduler;
+    private final List<byte[]> inboundFrames = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -152,13 +153,39 @@ class DeviceSessionTest {
         }
     }
 
+    @Test
+    void unsolicitedFrameIsHandedToInboundSink() throws Exception {
+        try (StubTcpServer server = new StubTcpServer(StubTcpServer.sendThenSilent("STATUS\n"))) {
+            DeviceSession session = clientSession(server.port(), watchdog(60, 5), null);
+            session.start();
+            awaitTrue(() -> !inboundFrames.isEmpty(), 2_000);
+            assertThat(new String(inboundFrames.get(0), StandardCharsets.ISO_8859_1)).isEqualTo("STATUS");
+            session.close();
+        }
+    }
+
+    @Test
+    void ackFramesAreNotTreatedAsInbound() throws Exception {
+        List<String> received = new CopyOnWriteArrayList<>();
+        try (StubTcpServer server = new StubTcpServer(socket -> ackResponder(socket, received))) {
+            DeviceSession session = clientSession(server.port(), watchdog(60, 5), null);
+            session.start();
+            awaitState(session, DeviceSessionState.UP, 2_000);
+            session.send("HELLO".getBytes(StandardCharsets.ISO_8859_1));
+            assertThat(received).contains("HELLO");
+            Thread.sleep(200);
+            assertThat(inboundFrames).isEmpty(); // the ACK completed the send; it isn't an inbound message
+            session.close();
+        }
+    }
+
     // ---- helpers ----
 
     private DeviceSession clientSession(int port, TcpSession.Heartbeat hb, TcpProtocol protocol) {
         TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
                 port, null, null, hb, null);
         DeviceSessionConfig cfg = new DeviceSessionConfig("dev-1", "127.0.0.1", protocol, session);
-        return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200, 500);
+        return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200, 500, inboundFrames::add);
     }
 
     private static TcpSession.Heartbeat watchdog(int expectInboundSec, int missThreshold) {

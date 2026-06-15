@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -77,6 +78,22 @@ class TcpSessionManagerTest {
                 awaitTrue(() -> manager.statuses().size() == 2, 2_000);
                 assertThat(manager.statuses().stream().map(DeviceSessionStatus::deviceId).toList())
                         .containsExactly("dev-a", "dev-b");
+            } finally {
+                manager.shutdown();
+            }
+        }
+    }
+
+    @Test
+    void unsolicitedFramesFlowToTheInboundSink() throws Exception {
+        List<byte[]> captured = new CopyOnWriteArrayList<>();
+        try (StubTcpServer server = new StubTcpServer(StubTcpServer.sendThenSilent("STATUS\n"))) {
+            TcpSessionManager manager = new TcpSessionManager(
+                    (cfg, frame) -> captured.add(frame), 500, 50, 200, 15_000);
+            try {
+                manager.reconcile(List.of(cfg("dev-1", server.port())));
+                awaitTrue(() -> !captured.isEmpty(), 2_000);
+                assertThat(new String(captured.get(0), StandardCharsets.ISO_8859_1)).isEqualTo("STATUS");
             } finally {
                 manager.shutdown();
             }

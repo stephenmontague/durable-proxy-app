@@ -41,7 +41,13 @@ export function validateConfig(
       validateTcpProtocol(`${device.deviceId}: device tcpProtocol`, device.tcpProtocol, errors);
     }
     if (device.tcpSession != null) {
-      validateTcpSession(`${device.deviceId}: tcpSession`, device, device.tcpSession, errors);
+      validateTcpSession(
+        `${device.deviceId}: tcpSession`,
+        device,
+        device.tcpSession,
+        typeDirections,
+        errors,
+      );
     }
     for (const binding of device.bindings) {
       validateBinding(typeDirections, pool, inboundChannelOwners, device, binding, errors);
@@ -175,6 +181,7 @@ function validateTcpSession(
   prefix: string,
   device: EdgeConfig,
   s: TcpSession,
+  typeDirections: Record<string, Direction>,
   errors: string[],
 ): void {
   if (s.mode !== "PERSISTENT") return;
@@ -219,6 +226,15 @@ function validateTcpSession(
     }
     if (hb.expectReply != null && !hasPing) {
       errors.push(`${hbPrefix}: expectReply requires sendIntervalSec`);
+    }
+  }
+
+  if (s.inboundType != null) {
+    const direction = typeDirections[s.inboundType];
+    if (!direction) {
+      errors.push(`${prefix}: unknown inboundType '${s.inboundType}'`);
+    } else if (direction !== "EDGE_TO_CLOUD") {
+      errors.push(`${prefix}: inboundType '${s.inboundType}' must be an EDGE_TO_CLOUD type`);
     }
   }
 }

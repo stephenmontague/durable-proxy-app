@@ -10,6 +10,7 @@ import com.proxyapp.routing.MessageTypeResolver.InboundContext;
 import com.proxyapp.routing.RouteTable;
 import com.proxyapp.routing.RoutingState;
 import com.proxyapp.routing.Transport;
+import com.proxyapp.session.DeviceSessionConfig;
 import com.proxyapp.temporal.activity.DeliverToCloudActivity;
 import io.temporal.api.enums.v1.ActivityIdConflictPolicy;
 import io.temporal.api.enums.v1.ActivityIdReusePolicy;
@@ -72,8 +73,38 @@ public class InboundGateway {
                 ? resolveMultiType(table, route, transport, channelValue, filename, raw)
                 : route.entry();
 
-        CanonicalMessage message = codecRegistry.require(entry.codec()).decode(entry, raw);
+        return enqueue(entry, raw, transport + " channel '" + channelValue + "'");
+    }
 
+    /**
+     * Type and enqueue an unsolicited frame from a device's persistent TCP session. The session has
+     * no inbound channel binding, so the type comes from {@code tcpSession.inboundType} (an
+     * EDGE_TO_CLOUD type). Frames with no inbound type configured — or while the install is
+     * disabled — are dropped; the device link stays up regardless. (Multi-type sockets would
+     * instead resolve each frame via a {@link MessageTypeResolver}, the documented extension.)
+     */
+    public void enqueueSessionFrame(DeviceSessionConfig config, byte[] raw) {
+        if (!routingState.enabled()) {
+            return;
+        }
+        String inboundType = config.session().inboundType();
+        if (inboundType == null) {
+            log.debug("device {} sent an unsolicited frame but no inboundType is configured; dropping",
+                    config.deviceId());
+            return;
+        }
+        CatalogEntry entry = routingState.table().catalog().entry(MessageType.of(inboundType)).orElse(null);
+        if (entry == null) {
+            log.warn("device {} inboundType '{}' is not in the catalog; dropping frame",
+                    config.deviceId(), inboundType);
+            return;
+        }
+        enqueue(entry, raw, "device '" + config.deviceId() + "' session");
+    }
+
+    /** Decode + start the durable DeliverToCloud activity (ack-after-enqueue, dedup by activity id). */
+    private EnqueueResult enqueue(CatalogEntry entry, byte[] raw, String source) {
+        CanonicalMessage message = codecRegistry.require(entry.codec()).decode(entry, raw);
         StartActivityOptions options = StartActivityOptions.newBuilder()
                 .setId(message.activityId())
                 .setTaskQueue(properties.taskQueue())
@@ -84,7 +115,7 @@ public class InboundGateway {
         try {
             activityClient.start(DeliverToCloudActivity.class, DeliverToCloudActivity::deliver,
                     options, message);
-            log.info("enqueued {} from {} channel '{}'", message.activityId(), transport, channelValue);
+            log.info("enqueued {} from {}", message.activityId(), source);
             return new EnqueueResult(message.activityId(), false);
         } catch (ActivityAlreadyStartedException e) {
             // Already delivered (or in flight) — still ack so the device stops retrying.

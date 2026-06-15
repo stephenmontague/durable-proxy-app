@@ -282,4 +282,35 @@ class ConfigValidatorTest {
         assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
                 .containsExactly("a: tcpSession.heartbeat.sendIntervalSec must be positive");
     }
+
+    @Test
+    void validInboundTypePasses() {
+        TcpSession session = persistentClient("COMMAND_RESULT"); // an EDGE_TO_CLOUD type
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void unknownInboundTypeIsRejected() {
+        TcpSession session = persistentClient("MYSTERY");
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: unknown inboundType 'MYSTERY'");
+    }
+
+    @Test
+    void inboundTypeMustBeEdgeToCloud() {
+        TcpSession session = persistentClient("DEVICE_COMMAND"); // a CLOUD_TO_EDGE type
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: inboundType 'DEVICE_COMMAND' must be an EDGE_TO_CLOUD type");
+    }
+
+    private static TcpSession persistentClient(String inboundType) {
+        return new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT, 9001, null, null,
+                new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null, inboundType);
+    }
 }

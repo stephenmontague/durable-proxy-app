@@ -110,4 +110,17 @@ final class StubTcpServer implements AutoCloseable {
             // connection ended
         }
     }
+
+    /** Push {@code frame} once on connect, then stay silent — an unsolicited device→cloud message. */
+    static Consumer<Socket> sendThenSilent(String frame) {
+        return socket -> {
+            try {
+                socket.getOutputStream().write(frame.getBytes(StandardCharsets.ISO_8859_1));
+                socket.getOutputStream().flush();
+            } catch (IOException ignored) {
+                // connection ended
+            }
+            silent(socket);
+        };
+    }
 }

@@ -53,7 +53,8 @@ public final class ConfigValidator {
                 validateTcpProtocol(id + ": device tcpProtocol", device.tcpProtocol(), errors);
             }
             if (device.tcpSession() != null) {
-                validateTcpSession(id + ": tcpSession", device, device.tcpSession(), errors);
+                validateTcpSession(id + ": tcpSession", device, device.tcpSession(),
+                        typeDirections, errors);
             }
             for (RouteBinding binding : device.bindings()) {
                 validateBinding(typeDirections, pool, inboundChannelOwners, device, binding, errors);
@@ -186,7 +187,7 @@ public final class ConfigValidator {
      * mechanism; all heartbeat WireString fields must parse.
      */
     private static void validateTcpSession(String prefix, EdgeConfig device, TcpSession s,
-                                           List<String> errors) {
+                                           Map<String, String> typeDirections, List<String> errors) {
         if (s.mode() != TcpSession.Mode.PERSISTENT) {
             return; // PER_MESSAGE / unset = today's connect-per-message behavior, nothing to check
         }
@@ -230,6 +231,16 @@ public final class ConfigValidator {
             }
             if (hb.expectReply() != null && !hasPing) {
                 errors.add(hbPrefix + ": expectReply requires sendIntervalSec");
+            }
+        }
+
+        if (s.inboundType() != null) {
+            String direction = typeDirections.get(s.inboundType());
+            if (direction == null) {
+                errors.add(prefix + ": unknown inboundType '" + s.inboundType() + "'");
+            } else if (Direction.valueOf(direction) != Direction.EDGE_TO_CLOUD) {
+                errors.add(prefix + ": inboundType '" + s.inboundType()
+                        + "' must be an EDGE_TO_CLOUD type");
             }
         }
     }

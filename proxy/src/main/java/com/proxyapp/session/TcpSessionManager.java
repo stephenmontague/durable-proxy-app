@@ -16,6 +16,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 /**
  * The proxy's <b>connection table</b> for persistent device links: a {@code Map<deviceId,
@@ -28,6 +30,7 @@ public class TcpSessionManager {
 
     private static final Logger log = LoggerFactory.getLogger(TcpSessionManager.class);
 
+    private final BiConsumer<DeviceSessionConfig, byte[]> inboundSink;
     private final int connectTimeoutMs;
     private final long minBackoffMs;
     private final long maxBackoffMs;
@@ -40,17 +43,19 @@ public class TcpSessionManager {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(
             2, r -> daemon(r, "tcp-session-hb-" + threadSeq.incrementAndGet()));
 
-    public TcpSessionManager() {
+    public TcpSessionManager(BiConsumer<DeviceSessionConfig, byte[]> inboundSink) {
         // Dial timeout 5s; reconnect backoff 1s..30s (doubling); send-ack wait 15s.
-        this(5_000, 1_000, 30_000, 15_000);
+        this(inboundSink, 5_000, 1_000, 30_000, 15_000);
     }
 
-    /** Test convenience: default send-ack timeout. */
+    /** Test convenience: no-op inbound sink, default send-ack timeout. */
     TcpSessionManager(int connectTimeoutMs, long minBackoffMs, long maxBackoffMs) {
-        this(connectTimeoutMs, minBackoffMs, maxBackoffMs, 15_000);
+        this((cfg, frame) -> { }, connectTimeoutMs, minBackoffMs, maxBackoffMs, 15_000);
     }
 
-    TcpSessionManager(int connectTimeoutMs, long minBackoffMs, long maxBackoffMs, long sendAckTimeoutMs) {
+    TcpSessionManager(BiConsumer<DeviceSessionConfig, byte[]> inboundSink, int connectTimeoutMs,
+                      long minBackoffMs, long maxBackoffMs, long sendAckTimeoutMs) {
+        this.inboundSink = inboundSink;
         this.connectTimeoutMs = connectTimeoutMs;
         this.minBackoffMs = minBackoffMs;
         this.maxBackoffMs = maxBackoffMs;
@@ -106,8 +111,10 @@ public class TcpSessionManager {
     }
 
     private void openSession(DeviceSessionConfig cfg) {
+        Consumer<byte[]> frameSink = frame -> inboundSink.accept(cfg, frame);
         DeviceSession session = new DeviceSession(
-                cfg, connectExecutor, scheduler, connectTimeoutMs, minBackoffMs, maxBackoffMs, sendAckTimeoutMs);
+                cfg, connectExecutor, scheduler, connectTimeoutMs, minBackoffMs, maxBackoffMs,
+                sendAckTimeoutMs, frameSink);
         sessions.put(cfg.deviceId(), session);
         session.start();
         log.info("opened persistent session for device {} ({} {}:{})", cfg.deviceId(),

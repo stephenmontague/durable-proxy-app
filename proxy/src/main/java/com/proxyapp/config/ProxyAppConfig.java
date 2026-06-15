@@ -92,10 +92,10 @@ public class ProxyAppConfig {
         return new FtpIngressListener(gateway, properties);
     }
 
-    /** Connection table for persistent device links (per-device heartbeated sockets). */
+    /** Connection table for persistent device links; unsolicited frames flow to the ingress gateway. */
     @Bean
-    public TcpSessionManager tcpSessionManager() {
-        return new TcpSessionManager();
+    public TcpSessionManager tcpSessionManager(InboundGateway gateway) {
+        return new TcpSessionManager(gateway::enqueueSessionFrame);
     }
 
     @Bean
