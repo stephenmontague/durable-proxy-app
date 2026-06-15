@@ -1,6 +1,7 @@
 "use client";
 
 import { FlowDiagram } from "@/components/flow-diagram";
+import { ConnectionsPanel } from "@/components/dashboard/connections-panel";
 import { ControlsPanel } from "@/components/dashboard/controls-panel";
 import { ListenersPanel } from "@/components/dashboard/listeners-panel";
 import { StatusPanel } from "@/components/dashboard/status-panel";
@@ -44,6 +45,10 @@ export default function ConsolePage() {
         {state && <ControlsPanel state={state} onActed={control.refresh} />}
         {state && <ListenersPanel state={state} />}
       </div>
+
+      {state?.applied?.sessions && state.applied.sessions.length > 0 && (
+        <ConnectionsPanel sessions={state.applied.sessions} />
+      )}
 
       <Panel legend="Recent traffic">
         <FeedTable items={(feed.data?.items ?? []).slice(0, 8)} compact />

@@ -24,12 +24,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TypeForm } from "@/components/catalog/type-form";
+import { ConnectionFields } from "@/components/routes/connection-fields";
 import { CustomBindingsEditor, type AvailableType } from "@/components/routes/custom-bindings";
 import { WireProtocolFields } from "@/components/routes/wire-protocol-fields";
 import { awaitConfigOutcome, postSignal } from "@/lib/actions";
 import { matchPreset, summarizeProtocol, TCP_PRESETS } from "@/lib/tcp-presets";
 import { DEVICE_TEMPLATES, materialize, type DeviceTemplateDef, type SiteValues } from "@/lib/templates";
-import type { EdgeConfig, ProxyControlState, RouteBinding, TcpProtocol } from "@/lib/types";
+import type { EdgeConfig, ProxyControlState, RouteBinding, TcpProtocol, TcpSession } from "@/lib/types";
 import { validateConfig } from "@/lib/validate";
 import { cn } from "@/lib/utils";
 
@@ -105,6 +106,8 @@ export function DeviceWizard({
   const [deviceProtocol, setDeviceProtocol] = useState<TcpProtocol | null>(null);
   const [bindingPresetIds, setBindingPresetIds] = useState<Record<number, string>>({});
   const [bindingProtocols, setBindingProtocols] = useState<Record<number, TcpProtocol>>({});
+  const [tcpSession, setTcpSession] = useState<TcpSession | null>(null);
+  const [showConnection, setShowConnection] = useState(false);
   const [applying, setApplying] = useState(false);
 
   // Reset on open; in edit mode jump straight to site values.
@@ -113,6 +116,7 @@ export function DeviceWizard({
     setChannelOverrides({});
     setApplying(false);
     setShowWire(false);
+    setShowConnection(false);
     setCustom(false);
     setCustomBindings([]);
     if (editing) {
@@ -131,6 +135,7 @@ export function DeviceWizard({
       });
       setBindingPresetIds(presetIds);
       setBindingProtocols(protocols);
+      setTcpSession(editing.tcpSession ?? null);
       setStep(2);
     } else {
       setTemplate(DEVICE_TEMPLATES[0] ?? null);
@@ -140,6 +145,7 @@ export function DeviceWizard({
       setDeviceProtocol(null);
       setBindingPresetIds({});
       setBindingProtocols({});
+      setTcpSession(null);
       setStep(1);
     }
   }, [open, editing]);
@@ -180,13 +186,14 @@ export function DeviceWizard({
       }
     }
     base.tcpProtocol = deviceProtocol;
+    base.tcpSession = tcpSession;
     base.bindings = base.bindings.map((b, i) => {
       const override = bindingPresetIds[i] && bindingPresetIds[i] !== "inherit"
         ? (bindingProtocols[i] ?? null) : null;
       return override != null ? { ...b, tcpProtocol: override } : { ...b, tcpProtocol: null };
     });
     return base;
-  }, [mode, editing, custom, customBindings, template, site, channelOverrides, deviceProtocol, bindingPresetIds, bindingProtocols]);
+  }, [mode, editing, custom, customBindings, template, site, channelOverrides, deviceProtocol, tcpSession, bindingPresetIds, bindingProtocols]);
 
   const errors = useMemo(() => {
     if (!draft) return [];
@@ -229,6 +236,12 @@ export function DeviceWizard({
     }
     return Object.entries(state.typeDirections).map(([type, direction]) => ({ type, direction }));
   }, [state.catalogEntries, state.typeDirections]);
+
+  // EDGE_TO_CLOUD types an operator can pick as a persistent session's unsolicited-inbound type.
+  const inboundTypes = useMemo(
+    () => availableTypes.filter((t) => t.direction === "EDGE_TO_CLOUD").map((t) => t.type),
+    [availableTypes],
+  );
 
   return (
     <>
@@ -497,6 +510,24 @@ export function DeviceWizard({
                 )}
               </div>
             )}
+
+            <div>
+              <button
+                className="rule-label w-full cursor-pointer"
+                onClick={() => setShowConnection((s) => !s)}
+              >
+                connection · persistent tcp {showConnection ? "▾" : "▸"}
+              </button>
+              {showConnection && (
+                <div className="mt-2">
+                  <ConnectionFields
+                    value={tcpSession}
+                    inboundTypes={inboundTypes}
+                    onChange={setTcpSession}
+                  />
+                </div>
+              )}
+            </div>
 
             <div className="flex justify-between">
               {mode === "template" ? (
