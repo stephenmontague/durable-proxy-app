@@ -30,8 +30,10 @@ connection:
   route → codec → connector → device channel.
 - **Edge → Cloud**: the device pushes to a proxy ingress **channel** (HTTP path / TCP
   port / FTP folder). The channel — never the payload — identifies the message type. The
-  proxy starts a `DeliverToCloud` standalone activity and acks the device only after
-  Temporal accepted the enqueue.
+  proxy starts a `DeliverToCloud` standalone activity (activity id `{type}-{businessId}`,
+  so identical pushes dedup to one delivery) and acks the device only after Temporal
+  accepted the enqueue. Per-type `allowDuplicates` opts out of dedup — every push gets a
+  unique id and is delivered, for event/telemetry streams where each frame is its own observation.
 - **Control plane**: a singleton `ProxyControlWorkflow` (Workflow ID `proxy-control`)
   holds desired state `{enabled, devices[], version}` plus lifecycle commands. The cloud
   drives it with signals; the proxy polls it via query, a `Reconciler` hot-applies changes

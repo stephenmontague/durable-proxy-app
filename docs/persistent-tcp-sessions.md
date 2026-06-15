@@ -95,7 +95,7 @@ So **don't store session contents in a workflow** — the socket part isn't stor
 ## Guarantees / non-goals
 
 - Heartbeats stay out of Temporal.
-- Delivery is still **at-least-once** (crash mid-send → activity retry → possible re-send) — the device must tolerate duplicates or use the dedup / allow-duplicate setting. The persistent socket changes transport mechanics, not the delivery guarantee.
+- Delivery is still **at-least-once** (crash mid-send → activity retry → possible re-send) — the device/cloud must tolerate duplicates. Inbound dedup is a per-type catalog knob, `allowDuplicates`: **off** (default) collapses byte-identical pushes to one delivery via the `{type}-{businessId}` activity id; **on** gives every push a unique activity id so each is delivered (event/telemetry streams where two identical frames are two real observations). The persistent socket changes transport mechanics, not the delivery guarantee.
 - PER_MESSAGE TCP devices are fully unaffected.
 
 ## Phased implementation

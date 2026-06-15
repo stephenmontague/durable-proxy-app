@@ -13,6 +13,7 @@ each install is isolated in its own Temporal namespace (exactly how you'd ship o
 | Framing        | `STX` / `ETX`                       | `<start>` / `end`                    |
 | Link           | persistent CLIENT, **10s** heartbeat| persistent CLIENT, **30s** heartbeat |
 | Device telemetry | emits a CSV `SCAN_EVENT` every 8s | emits an XML `METER_READING` every 12s |
+| Inbound dedup  | `allowDuplicates` **on** — every scan delivered | dedup **on** (default) — identical readings collapse |
 | Ports          | proxy 8090 · cloud 8091 · edge 8092 · **UI 3000** | proxy 8190 · cloud 8191 · edge 8192 · **UI 3001** |
 
 > The device frames + emits its own native payload over the kept-alive socket; the proxy types
@@ -24,6 +25,11 @@ each install is isolated in its own Temporal namespace (exactly how you'd ship o
 - **Stop the default demo stack first** if it's running — Sandbox A reuses ports 8090–8092.
 - Build once: `just build` and (for two UIs) `just build-ui`.
 - Create the namespaces: `just sandbox-namespaces`.
+
+> **Start the two UIs sequentially** (bring Sandbox A fully up before Sandbox B). Next 16's
+> `next start` only reads the namespace from `management-ui/.env.local` (not a command-line env var),
+> so `run-ui-ns` writes that file and each UI captures it at *its own* startup — overlapping starts
+> would race on the shared file.
 
 ## Bring up Sandbox A (warehouse)
 Four terminals, then apply its config:
@@ -72,9 +78,14 @@ Open both consoles side by side — **<http://localhost:3000>** (A) and **<http:
 ## Notes
 - **Heartbeat ≠ telemetry**: the heartbeat ping (10s / 30s) keeps the link alive; the telemetry emit
   (8s / 12s) is the device pushing business data. They're independent knobs.
-- **Same id ⇒ one workflow**: each device emits a fixed payload, so B's `METER_READING` (business id
-  from the `<meter>` element) dedupes to a single `DeliverToCloud` — exactly-once in action. Vary the
-  payload to see new executions.
+- **Dedup vs. every-event** — the `allowDuplicates` flag: both devices emit a *fixed* payload every
+  interval. Sandbox **A**'s `SCAN_EVENT` sets `allowDuplicates: true`, so every scan is delivered —
+  the **Recent traffic** feed ticks continuously even though the bytes never change (each push gets a
+  unique activity id). Sandbox **B**'s `METER_READING` leaves it off (the default), so identical
+  readings **dedup to a single `DeliverToCloud`** — exactly-once in action; the feed shows one. Flip
+  the flag in the Config tab (or the catalog JSON) to swap either device's behavior. Use dedup when
+  the business id is a real key (an order/command id); use `allowDuplicates` for event/telemetry
+  streams where each push is its own observation.
 - **Delimiter vs payload collisions**: `end` is a plain word, so a payload containing `end` would
   frame early — fine for these demo payloads, but a real deployment would pick a sentinel that can't
   occur in the body (this is the kind of thing the operator tunes per client, in config).

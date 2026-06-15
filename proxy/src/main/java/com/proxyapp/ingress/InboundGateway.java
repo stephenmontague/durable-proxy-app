@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -135,8 +136,9 @@ public class InboundGateway {
     /** Decode + start the durable DeliverToCloud activity (ack-after-enqueue, dedup by activity id). */
     private EnqueueResult enqueue(CatalogEntry entry, byte[] raw, String source) {
         CanonicalMessage message = codecRegistry.require(entry.codec()).decode(entry, raw);
+        String activityId = activityId(entry, message);
         StartActivityOptions options = StartActivityOptions.newBuilder()
-                .setId(message.activityId())
+                .setId(activityId)
                 .setTaskQueue(properties.taskQueue())
                 .setStartToCloseTimeout(Duration.ofSeconds(30))
                 .setIdReusePolicy(ActivityIdReusePolicy.ACTIVITY_ID_REUSE_POLICY_REJECT_DUPLICATE)
@@ -145,13 +147,27 @@ public class InboundGateway {
         try {
             activityClient.start(DeliverToCloudActivity.class, DeliverToCloudActivity::deliver,
                     options, message);
-            log.info("enqueued {} from {}", message.activityId(), source);
-            return new EnqueueResult(message.activityId(), false);
+            log.info("enqueued {} from {}", activityId, source);
+            return new EnqueueResult(activityId, false);
         } catch (ActivityAlreadyStartedException e) {
             // Already delivered (or in flight) — still ack so the device stops retrying.
-            log.info("duplicate push for {} ignored", message.activityId());
-            return new EnqueueResult(message.activityId(), true);
+            log.info("duplicate push for {} ignored", activityId);
+            return new EnqueueResult(activityId, true);
         }
+    }
+
+    /**
+     * The Temporal activity id that drives dedup. Normally {@code {type}-{businessId}}, so identical
+     * pushes collapse to a single delivery (REJECT_DUPLICATE reuse policy). When the type sets
+     * {@code allowDuplicates}, a unique suffix is appended so every push gets its own activity id —
+     * for event/telemetry streams where two byte-identical frames are two real observations, not a
+     * retransmit. Trade-off: a transport-level retry of one push can then double-deliver, so it stays
+     * at-least-once. Package-private + static so the dedup decision is unit-testable without Temporal.
+     */
+    static String activityId(CatalogEntry entry, CanonicalMessage message) {
+        return entry.allowDuplicates()
+                ? message.activityId() + "-" + UUID.randomUUID()
+                : message.activityId();
     }
 
     private CatalogEntry resolveMultiType(RouteTable table, RouteTable.InboundRoute route,

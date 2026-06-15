@@ -19,14 +19,22 @@ import com.proxyapp.routing.MessageType;
  * @param codec           codec name: {@code "json"}, {@code "xml"}, or {@code "raw"}
  * @param cloudEndpoint   for EDGE_TO_CLOUD types, the path the proxy POSTs to; null otherwise
  * @param businessIdField payload field carrying the dedup id; null falls back to a content hash
+ * @param allowDuplicates when true, identical inbound pushes are delivered individually instead of
+ *                        deduped (event/telemetry streams); default false. See {@link CatalogEntry}.
  */
 public record CatalogEntryDto(String type, String direction, String codec,
-                              String cloudEndpoint, String businessIdField) {
+                              String cloudEndpoint, String businessIdField, boolean allowDuplicates) {
+
+    /** Backward-compatible 5-arg form (allowDuplicates = false) for existing callers and stored state. */
+    public CatalogEntryDto(String type, String direction, String codec,
+                           String cloudEndpoint, String businessIdField) {
+        this(type, direction, codec, cloudEndpoint, businessIdField, false);
+    }
 
     /** Flatten a catalog entry for transport in workflow state. */
     public static CatalogEntryDto from(CatalogEntry entry) {
         return new CatalogEntryDto(entry.type().value(), entry.direction().name(),
-                entry.codec(), entry.cloudEndpoint(), entry.businessIdField());
+                entry.codec(), entry.cloudEndpoint(), entry.businessIdField(), entry.allowDuplicates());
     }
 
     /**
@@ -36,6 +44,6 @@ public record CatalogEntryDto(String type, String direction, String codec,
      */
     public CatalogEntry toCatalogEntry() {
         return new CatalogEntry(MessageType.of(type), Direction.valueOf(direction),
-                codec, cloudEndpoint, businessIdField);
+                codec, cloudEndpoint, businessIdField, allowDuplicates);
     }
 }

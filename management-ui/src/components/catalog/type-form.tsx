@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { awaitConfigOutcome, postSignal } from "@/lib/actions";
 import { CODECS, type CatalogEntryDto, type CodecName, type Direction, type ProxyControlState } from "@/lib/types";
 import { validateCatalogEntry } from "@/lib/validate";
@@ -109,6 +110,8 @@ export function TypeForm({
         codec: draft.codec,
         cloudEndpoint: edgeToCloud && draft.cloudEndpoint?.trim() ? draft.cloudEndpoint.trim() : null,
         businessIdField: draft.businessIdField?.trim() ? draft.businessIdField.trim() : null,
+        // Only meaningful for inbound dedup; force off for CLOUD_TO_EDGE so it can't silently linger.
+        allowDuplicates: edgeToCloud ? (draft.allowDuplicates ?? false) : false,
       };
       await postSignal("upsert-message-type", entry);
       const outcome = await awaitConfigOutcome(prevVersion);
@@ -219,6 +222,23 @@ export function TypeForm({
               onChange={(e) => setDraft({ ...draft, businessIdField: e.target.value })}
             />
           </Field>
+
+          {edgeToCloud && (
+            <Field
+              label="Allow duplicates"
+              hint="On: every inbound message is delivered, even byte-identical repeats (event/telemetry streams). Off: identical payloads dedup to a single delivery."
+            >
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={draft.allowDuplicates ?? false}
+                  onCheckedChange={(checked) => setDraft({ ...draft, allowDuplicates: checked })}
+                />
+                <span className="readout text-[11px] text-ink-soft">
+                  {(draft.allowDuplicates ?? false) ? "deliver every message" : "dedup identical payloads"}
+                </span>
+              </div>
+            </Field>
+          )}
 
           {errors.length > 0 && (
             <div className="border border-err/40 bg-err/10 px-3 py-2">

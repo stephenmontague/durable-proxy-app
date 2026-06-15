@@ -10,7 +10,16 @@ package com.proxyapp.routing;
  * @param cloudEndpoint   for EDGE_TO_CLOUD types: path on the cloud base URL the proxy posts to
  * @param businessIdField field inside the decoded payload that carries the business id
  *                        (dedup handle); null falls back to a payload hash
+ * @param allowDuplicates when true, identical inbound pushes are NOT deduped — every push becomes
+ *                        its own delivery. For event/telemetry streams where two byte-identical
+ *                        frames are two real observations, not a retransmit. Default false (dedup on).
  */
 public record CatalogEntry(MessageType type, Direction direction, String codec,
-                           String cloudEndpoint, String businessIdField) {
+                           String cloudEndpoint, String businessIdField, boolean allowDuplicates) {
+
+    /** Backward-compatible: dedup on (allowDuplicates = false), the historical behavior. */
+    public CatalogEntry(MessageType type, Direction direction, String codec,
+                        String cloudEndpoint, String businessIdField) {
+        this(type, direction, codec, cloudEndpoint, businessIdField, false);
+    }
 }

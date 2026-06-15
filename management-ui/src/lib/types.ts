@@ -20,6 +20,12 @@ export interface CatalogEntryDto {
   codec: CodecName;
   cloudEndpoint?: string | null;
   businessIdField?: string | null;
+  /**
+   * EDGE_TO_CLOUD only. When true, identical inbound pushes are delivered individually instead of
+   * deduped — for event/telemetry streams where two byte-identical frames are two real observations.
+   * Default/absent = false (dedup on).
+   */
+  allowDuplicates?: boolean;
 }
 
 export interface Channel {
