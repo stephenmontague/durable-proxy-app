@@ -20,6 +20,7 @@ import com.proxyapp.routing.FilenamePatternResolver;
 import com.proxyapp.routing.MessageCatalog;
 import com.proxyapp.routing.MessageTypeResolver;
 import com.proxyapp.routing.RoutingState;
+import com.proxyapp.session.TcpSessionManager;
 import io.temporal.client.ActivityClient;
 import io.temporal.client.ActivityClientOptions;
 import io.temporal.client.WorkflowClient;
@@ -91,12 +92,19 @@ public class ProxyAppConfig {
         return new FtpIngressListener(gateway, properties);
     }
 
+    /** Connection table for persistent device links (per-device heartbeated sockets). */
+    @Bean
+    public TcpSessionManager tcpSessionManager() {
+        return new TcpSessionManager();
+    }
+
     @Bean
     public Reconciler reconciler(ProxyProperties properties, MessageCatalog catalog,
                                  RoutingState routingState, TcpSocketServer tcpSocketServer,
-                                 FtpIngressListener ftpIngressListener, WorkerFactory workerFactory) {
+                                 FtpIngressListener ftpIngressListener,
+                                 TcpSessionManager tcpSessionManager, WorkerFactory workerFactory) {
         return new Reconciler(properties, catalog, routingState, tcpSocketServer,
-                ftpIngressListener, workerFactory);
+                ftpIngressListener, tcpSessionManager, workerFactory);
     }
 
     @Bean
@@ -114,8 +122,9 @@ public class ProxyAppConfig {
                                                  RoutingState routingState,
                                                  TcpSocketServer tcpSocketServer,
                                                  FtpIngressListener ftpIngressListener,
+                                                 TcpSessionManager tcpSessionManager,
                                                  ApplicationContext applicationContext) {
         return new ProxyControlPoller(workflowClient, starter, reconciler, routingState,
-                tcpSocketServer, ftpIngressListener, applicationContext);
+                tcpSocketServer, ftpIngressListener, tcpSessionManager, applicationContext);
     }
 }

@@ -1,5 +1,7 @@
 package com.proxyapp.control;
 
+import com.proxyapp.session.DeviceSessionStatus;
+
 import java.util.List;
 
 /**
@@ -17,8 +19,19 @@ import java.util.List;
  * @param supervised whether a supervisor will relaunch the process after a restart
  *                   command (PROXY_SUPERVISED env var, set by proxy-supervisor.sh or a
  *                   service unit). False means RESTART behaves like SHUTDOWN.
+ * @param sessions   per-device persistent-link health (CONNECTING/UP/DOWN); empty when no device
+ *                   uses a persistent TCP session
  */
 public record AppliedStatus(long version, boolean enabled, List<String> httpPaths,
                             List<Integer> tcpPorts, List<String> ftpFolders,
-                            String startedAt, String reportedAt, boolean supervised) {
+                            String startedAt, String reportedAt, boolean supervised,
+                            List<DeviceSessionStatus> sessions) {
+
+    /** Pre-persistent-session call sites: no device sessions. */
+    public AppliedStatus(long version, boolean enabled, List<String> httpPaths,
+                         List<Integer> tcpPorts, List<String> ftpFolders,
+                         String startedAt, String reportedAt, boolean supervised) {
+        this(version, enabled, httpPaths, tcpPorts, ftpFolders, startedAt, reportedAt,
+                supervised, List.of());
+    }
 }

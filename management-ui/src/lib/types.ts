@@ -101,6 +101,17 @@ export interface EdgeConfig {
   tcpSession?: TcpSession | null;
 }
 
+export type SessionState = "CONNECTING" | "UP" | "DOWN";
+
+/** Per-device persistent-link health (com.proxyapp.session.DeviceSessionStatus). */
+export interface DeviceSessionStatus {
+  deviceId: string;
+  role: SessionRole;
+  state: SessionState;
+  lastHeartbeatAt?: string | null;
+  inflight: number;
+}
+
 /** What the proxy reports back after each reconcile (com.proxyapp.control.AppliedStatus). */
 export interface AppliedStatus {
   version: number;
@@ -112,6 +123,8 @@ export interface AppliedStatus {
   reportedAt: string;
   /** False = nothing will relaunch the proxy after RESTART (it acts like SHUTDOWN). */
   supervised?: boolean;
+  /** Per-device persistent-link health; empty/absent when no device uses a persistent session. */
+  sessions?: DeviceSessionStatus[] | null;
 }
 
 /** The control workflow's queryable state (com.proxyapp.control.ProxyControlState). */
