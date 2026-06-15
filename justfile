@@ -124,9 +124,12 @@ run-proxy-ns ns port:
         -Dspring-boot.run.arguments="--server.port={{port}} --spring.temporal.namespace={{ns}} --logging.level.heartbeat=INFO"
 
 # Dummy cloud for a sandbox. e.g. just run-cloud-ns sandbox-a 8091
+# NOTE: dummy-cloud has its own Temporal client (not the Spring starter), so its namespace key is
+# `cloud.temporal.namespace` — NOT `spring.temporal.namespace` (that's the proxy's). Using the wrong
+# one leaves the cloud on the `default` namespace and every /control/* call 500s (WorkflowNotFound).
 run-cloud-ns ns port:
     mvn -q -pl dummy-cloud spring-boot:run -Dspring-boot.run.profiles=local \
-        -Dspring-boot.run.arguments="--server.port={{port}} --spring.temporal.namespace={{ns}}"
+        -Dspring-boot.run.arguments="--server.port={{port}} --cloud.temporal.namespace={{ns}}"
 
 # Dummy edge for each sandbox (framing + telemetry baked into the Spring profile)
 run-dummy-edge-sandbox-a:
@@ -136,8 +139,12 @@ run-dummy-edge-sandbox-b:
 
 # Management UI for a sandbox (uses `next start`, so two can run at once — run `just build-ui` first).
 # e.g. just run-ui-ns sandbox-a 3000
+# NOTE: Next 16's `next start` does NOT forward command-line env vars (TEMPORAL_NAMESPACE=... npx ...)
+# to its server worker — only `.env*` files reach it. So we write the namespace into .env.local, which
+# each `next start` reads at its own startup. Bring sandboxes up SEQUENTIALLY (A fully, then B): each
+# worker captures .env.local when it boots, so the shared file is fine for the documented flow.
 run-ui-ns ns port:
-    cd management-ui && TEMPORAL_NAMESPACE={{ns}} npx next start -p {{port}}
+    cd management-ui && printf 'TEMPORAL_NAMESPACE=%s\n' {{ns}} > .env.local && exec npx next start -p {{port}}
 
 # Apply a sandbox's config to its cloud: clears the seeded device, imports the catalog, applies the
 # device. e.g. just sandbox-apply sandbox-a 8091
