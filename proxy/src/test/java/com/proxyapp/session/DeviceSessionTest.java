@@ -6,8 +6,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -16,6 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * CLIENT-mode session behavior against a stub server: connect→UP, reconnect on drop, and
@@ -105,13 +112,53 @@ class DeviceSessionTest {
         }
     }
 
+    @Test
+    void sendDeliversFramedPayloadAndAwaitsAck() throws Exception {
+        List<String> received = new CopyOnWriteArrayList<>();
+        try (StubTcpServer server = new StubTcpServer(socket -> ackResponder(socket, received))) {
+            DeviceSession session = clientSession(server.port(), watchdog(60, 5), null);
+            session.start();
+            awaitState(session, DeviceSessionState.UP, 2_000);
+            session.send("HELLO".getBytes(StandardCharsets.ISO_8859_1)); // returns once the ACK arrives
+            assertThat(received).contains("HELLO");
+            session.close();
+        }
+    }
+
+    @Test
+    void sendThrowsWhenNoAckArrives() throws Exception {
+        try (StubTcpServer server = new StubTcpServer(StubTcpServer::silent)) {
+            DeviceSession session = clientSession(server.port(), watchdog(60, 5), null);
+            session.start();
+            awaitState(session, DeviceSessionState.UP, 2_000);
+            assertThatThrownBy(() -> session.send("HELLO".getBytes(StandardCharsets.ISO_8859_1)))
+                    .isInstanceOf(SessionSendException.class);
+            session.close();
+        }
+    }
+
+    @Test
+    void fireAndForgetSendReturnsWithoutAck() throws Exception {
+        List<String> received = new CopyOnWriteArrayList<>();
+        // awaitReply=false -> the session writes and returns without waiting for any reply
+        TcpProtocol fireAndForget = new TcpProtocol(null, "<LF>", null, null, null, false);
+        try (StubTcpServer server = new StubTcpServer(socket -> recordLines(socket, received))) {
+            DeviceSession session = clientSession(server.port(), watchdog(60, 5), fireAndForget);
+            session.start();
+            awaitState(session, DeviceSessionState.UP, 2_000);
+            session.send("DATA".getBytes(StandardCharsets.ISO_8859_1));
+            awaitTrue(() -> received.contains("DATA"), 2_000);
+            session.close();
+        }
+    }
+
     // ---- helpers ----
 
     private DeviceSession clientSession(int port, TcpSession.Heartbeat hb, TcpProtocol protocol) {
         TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
                 port, null, null, hb, null);
         DeviceSessionConfig cfg = new DeviceSessionConfig("dev-1", "127.0.0.1", protocol, session);
-        return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200);
+        return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200, 500);
     }
 
     private static TcpSession.Heartbeat watchdog(int expectInboundSec, int missThreshold) {
@@ -146,6 +193,37 @@ class DeviceSessionTest {
             socket.close();
         } catch (IOException ignored) {
             // best-effort
+        }
+    }
+
+    /** Record each newline-terminated frame and ack it with {@code ACK\n}. */
+    private static void ackResponder(Socket socket, List<String> received) {
+        try {
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
+            OutputStream out = socket.getOutputStream();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                received.add(line);
+                out.write("ACK\n".getBytes(StandardCharsets.ISO_8859_1));
+                out.flush();
+            }
+        } catch (IOException ignored) {
+            // connection ended
+        }
+    }
+
+    /** Record each newline-terminated frame; never reply. */
+    private static void recordLines(Socket socket, List<String> received) {
+        try {
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                received.add(line);
+            }
+        } catch (IOException ignored) {
+            // connection ended
         }
     }
 

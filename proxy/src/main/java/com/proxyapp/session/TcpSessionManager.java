@@ -31,6 +31,7 @@ public class TcpSessionManager {
     private final int connectTimeoutMs;
     private final long minBackoffMs;
     private final long maxBackoffMs;
+    private final long sendAckTimeoutMs;
 
     private final Map<String, DeviceSession> sessions = new ConcurrentHashMap<>();
     private final AtomicInteger threadSeq = new AtomicInteger();
@@ -40,14 +41,20 @@ public class TcpSessionManager {
             2, r -> daemon(r, "tcp-session-hb-" + threadSeq.incrementAndGet()));
 
     public TcpSessionManager() {
-        // Dial timeout 5s; reconnect backoff 1s..30s (doubling).
-        this(5_000, 1_000, 30_000);
+        // Dial timeout 5s; reconnect backoff 1s..30s (doubling); send-ack wait 15s.
+        this(5_000, 1_000, 30_000, 15_000);
     }
 
+    /** Test convenience: default send-ack timeout. */
     TcpSessionManager(int connectTimeoutMs, long minBackoffMs, long maxBackoffMs) {
+        this(connectTimeoutMs, minBackoffMs, maxBackoffMs, 15_000);
+    }
+
+    TcpSessionManager(int connectTimeoutMs, long minBackoffMs, long maxBackoffMs, long sendAckTimeoutMs) {
         this.connectTimeoutMs = connectTimeoutMs;
         this.minBackoffMs = minBackoffMs;
         this.maxBackoffMs = maxBackoffMs;
+        this.sendAckTimeoutMs = sendAckTimeoutMs;
     }
 
     /** Open new sessions, close removed ones, reopen changed ones. Hot-applies. */
@@ -85,9 +92,22 @@ public class TcpSessionManager {
         return Set.copyOf(sessions.keySet());
     }
 
+    /**
+     * Hand an outbound message to the device's live session — the outbound activity calls this for
+     * PERSISTENT TCP devices. Throws if the device has no session yet, so the activity retries
+     * until reconcile has opened it (and Temporal keeps the message durable meanwhile).
+     */
+    public void send(String deviceId, byte[] payload) {
+        DeviceSession session = sessions.get(deviceId);
+        if (session == null) {
+            throw new SessionSendException("no persistent session for device " + deviceId);
+        }
+        session.send(payload);
+    }
+
     private void openSession(DeviceSessionConfig cfg) {
         DeviceSession session = new DeviceSession(
-                cfg, connectExecutor, scheduler, connectTimeoutMs, minBackoffMs, maxBackoffMs);
+                cfg, connectExecutor, scheduler, connectTimeoutMs, minBackoffMs, maxBackoffMs, sendAckTimeoutMs);
         sessions.put(cfg.deviceId(), session);
         session.start();
         log.info("opened persistent session for device {} ({} {}:{})", cfg.deviceId(),

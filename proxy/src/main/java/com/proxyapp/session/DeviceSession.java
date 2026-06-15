@@ -19,6 +19,7 @@ import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -58,12 +59,15 @@ final class DeviceSession {
     private final int connectTimeoutMs;
     private final long minBackoffMs;
     private final long maxBackoffMs;
+    private final long sendAckTimeoutMs;
 
     // Framing + heartbeat payloads, decoded once.
-    private final byte[] startDelim;   // nullable
-    private final byte[] endDelim;     // non-null (defaults to newline)
-    private final byte[] pingFrame;    // nullable: framed sendPayload, present iff a ping is configured
-    private final byte[] expectReply;  // nullable: decoded expected ping reply
+    private final byte[] startDelim;     // nullable
+    private final byte[] endDelim;       // non-null (defaults to newline)
+    private final byte[] pingFrame;      // nullable: framed sendPayload, present iff a ping is configured
+    private final byte[] expectReply;    // nullable: decoded expected ping reply
+    private final byte[] sendExpectedAck; // ack an outbound send waits for (contains-match)
+    private final boolean awaitSendReply; // false = fire-and-forget sends
 
     // Liveness config (with defaults applied).
     private final Integer sendIntervalSec;
@@ -82,19 +86,24 @@ final class DeviceSession {
     private volatile boolean pingOutstanding;
     private volatile long pingDeadlineMs;
     private final AtomicInteger consecutiveMisses = new AtomicInteger();
-    private final AtomicInteger inflight = new AtomicInteger(); // wired to outbound sends in phase 3
+    private final AtomicInteger inflight = new AtomicInteger(); // outbound sends awaiting their ack
+    private final Semaphore sendSlot = new Semaphore(1);        // single in-flight send at a time
+    private final Object ackLock = new Object();
+    private byte[] pendingAck;   // guarded by ackLock; non-null while a send awaits its ack
+    private boolean ackReceived; // guarded by ackLock
     private volatile ScheduledFuture<?> pingTask;
     private volatile ScheduledFuture<?> livenessTask;
 
     DeviceSession(DeviceSessionConfig config, ExecutorService connectExecutor,
                   ScheduledExecutorService scheduler, int connectTimeoutMs,
-                  long minBackoffMs, long maxBackoffMs) {
+                  long minBackoffMs, long maxBackoffMs, long sendAckTimeoutMs) {
         this.config = config;
         this.connectExecutor = connectExecutor;
         this.scheduler = scheduler;
         this.connectTimeoutMs = connectTimeoutMs;
         this.minBackoffMs = minBackoffMs;
         this.maxBackoffMs = maxBackoffMs;
+        this.sendAckTimeoutMs = sendAckTimeoutMs;
 
         TcpProtocol p = config.protocol();
         this.startDelim = (p != null && p.startDelimiter() != null)
@@ -102,6 +111,10 @@ final class DeviceSession {
         this.endDelim = (p != null && p.endDelimiter() != null)
                 ? WireString.decode(p.endDelimiter())
                 : "\n".getBytes(StandardCharsets.ISO_8859_1);
+        this.sendExpectedAck = (p != null && p.expectedAck() != null)
+                ? WireString.decode(p.expectedAck())
+                : "ACK".getBytes(StandardCharsets.ISO_8859_1);
+        this.awaitSendReply = p == null || p.shouldAwaitReply();
 
         TcpSession.Heartbeat hb = config.session().heartbeat();
         this.sendIntervalSec = hb == null ? null : hb.sendIntervalSec();
@@ -144,6 +157,65 @@ final class DeviceSession {
         cancel(livenessTask);
         closeSocket(socket.getAndSet(null));
         state = DeviceSessionState.DOWN;
+    }
+
+    /**
+     * Write one outbound message onto the live socket and (unless fire-and-forget) await its ack.
+     * Single-in-flight: one send at a time; the next inbound frame containing the configured
+     * {@code expectedAck} completes it. Throws {@link SessionSendException} on a down link, a busy
+     * slot, a write error, or a missing ack — the caller is the Temporal activity, so a throw means
+     * the message stays durable and the activity retries.
+     */
+    void send(byte[] payload) {
+        boolean acquired;
+        try {
+            acquired = sendSlot.tryAcquire(sendAckTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SessionSendException("device " + config.deviceId() + " send interrupted");
+        }
+        if (!acquired) {
+            throw new SessionSendException("device " + config.deviceId() + " send slot busy");
+        }
+        inflight.incrementAndGet();
+        try {
+            if (state != DeviceSessionState.UP) {
+                throw new SessionSendException("device " + config.deviceId() + " link is " + state);
+            }
+            if (!awaitSendReply) {
+                writeFrame(frame(payload)); // fire-and-forget: the TCP write is the guarantee
+                return;
+            }
+            synchronized (ackLock) {
+                pendingAck = sendExpectedAck;
+                ackReceived = false;
+            }
+            writeFrame(frame(payload));
+            synchronized (ackLock) {
+                long deadline = nowMs() + sendAckTimeoutMs;
+                long remaining;
+                while (!ackReceived && (remaining = deadline - nowMs()) > 0
+                        && state == DeviceSessionState.UP) {
+                    ackLock.wait(remaining);
+                }
+                if (!ackReceived) {
+                    throw new SessionSendException("device " + config.deviceId()
+                            + " sent no ack within " + sendAckTimeoutMs + "ms");
+                }
+            }
+        } catch (IOException e) {
+            markDownAndReconnect();
+            throw new SessionSendException("device " + config.deviceId() + " send failed: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SessionSendException("device " + config.deviceId() + " send interrupted awaiting ack");
+        } finally {
+            synchronized (ackLock) {
+                pendingAck = null;
+            }
+            inflight.decrementAndGet();
+            sendSlot.release();
+        }
     }
 
     // ---- connect / read loop (connect executor thread) ----
@@ -230,14 +302,25 @@ final class DeviceSession {
         }
     }
 
-    /** Any inbound frame is proof of life. A frame containing {@code expectReply} answers a ping. */
+    /**
+     * Any inbound frame is proof of life. A frame carrying a pending send's {@code expectedAck}
+     * completes that send; one carrying {@code expectReply} answers a ping.
+     */
     private void onFrame(byte[] frame) {
         lastInboundAtMs = nowMs();
         consecutiveMisses.set(0);
+        synchronized (ackLock) {
+            if (pendingAck != null && contains(frame, frame.length, pendingAck)) {
+                ackReceived = true;
+                ackLock.notifyAll();
+                return;
+            }
+        }
         if (expectReply != null && contains(frame, frame.length, expectReply)) {
             pingOutstanding = false;
+            return;
         }
-        // Phase 4: frames that aren't heartbeat replies become DeliverToCloud (MessageTypeResolver).
+        // Phase 4: frames that aren't acks or heartbeat replies become DeliverToCloud.
     }
 
     // ---- heartbeat + liveness (scheduler threads) ----

@@ -3,10 +3,12 @@ package com.proxyapp.session;
 import com.proxyapp.routing.TcpSession;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Reconcile add/remove/update of the connection table, and the statuses() projection. */
 class TcpSessionManagerTest {
@@ -78,6 +80,17 @@ class TcpSessionManagerTest {
             } finally {
                 manager.shutdown();
             }
+        }
+    }
+
+    @Test
+    void sendToUnknownDeviceThrows() {
+        TcpSessionManager manager = new TcpSessionManager(500, 50, 200);
+        try {
+            assertThatThrownBy(() -> manager.send("ghost", "x".getBytes(StandardCharsets.ISO_8859_1)))
+                    .isInstanceOf(SessionSendException.class);
+        } finally {
+            manager.shutdown();
         }
     }
 
