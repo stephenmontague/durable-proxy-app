@@ -538,8 +538,8 @@ the two in lockstep (like the WireString tests).
   correlated sends, unsolicited inbound → `DeliverToCloud`, and a multi-device connection table in
   the UI — with Temporal still doing durable delivery on top.
   Design + internals: [docs/persistent-tcp-sessions.md](docs/persistent-tcp-sessions.md); demo:
-  `just run-dummy-edge-persistent` + `just demo-config-persistent`. Remaining extensions: SERVER
-  shared listen-port/handshake mode, and multi-type inbound via `MessageTypeResolver`.
+  `just run-dummy-edge-persistent` + `just demo-config-persistent`. CLIENT + SERVER roles, shared
+  listen ports with handshake demux, and single- or resolver-typed inbound are all wired.
 - **More transports / framing:** SFTP; HTTP auth schemes; additional TCP framings beyond the
   configurable start/stop delimiters already shipped.
 - **More codecs:** fixed-width and delimited (CSV) behind `MessageCodec`, per-(edge,type) selection.

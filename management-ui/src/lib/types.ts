@@ -79,8 +79,10 @@ export interface TcpSession {
   handshakeId?: string | null;
   heartbeat?: Heartbeat | null;
   correlation?: Correlation | null;
-  /** Message type for unsolicited device→cloud frames on this socket (an EDGE_TO_CLOUD type). */
+  /** Single message type for unsolicited device→cloud frames (an EDGE_TO_CLOUD type). */
   inboundType?: string | null;
+  /** Or, for a socket carrying several inbound types: a content resolver. Mutually exclusive. */
+  resolver?: ResolverConfig | null;
 }
 
 export interface RouteBinding {

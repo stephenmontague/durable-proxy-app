@@ -6,8 +6,8 @@
 > Try it: `just run-dummy-edge-persistent` then `just demo-config-persistent`. SERVER role supports
 > both a per-device listen port and **shared listen ports with handshake demux** (the
 > `TcpSessionManager` reads each device's newline-terminated handshake id on connect). Unsolicited
-> inbound is typed by a single `inboundType` today; a content `MessageTypeResolver` for several
-> types on one socket is the remaining extension.
+> inbound is typed either by a single `inboundType` or, for a socket carrying several types, by a
+> content `MessageTypeResolver` (kind `content-pattern`). All paths are wired end-to-end.
 
 ## Context
 

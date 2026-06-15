@@ -278,6 +278,25 @@ public final class ConfigValidator {
                         + "' must be an EDGE_TO_CLOUD type");
             }
         }
+        if (s.inboundType() != null && s.resolver() != null) {
+            errors.add(prefix + ": set either inboundType or resolver, not both");
+        }
+        if (s.resolver() != null) {
+            if (s.resolver().kind() == null || s.resolver().kind().isBlank()) {
+                errors.add(prefix + ": resolver kind must not be blank");
+            }
+            if (s.resolver().patterns() != null) {
+                for (String target : s.resolver().patterns().values()) {
+                    String direction = typeDirections.get(target);
+                    if (direction == null) {
+                        errors.add(prefix + ": resolver maps to unknown type '" + target + "'");
+                    } else if (Direction.valueOf(direction) != Direction.EDGE_TO_CLOUD) {
+                        errors.add(prefix + ": resolver type '" + target
+                                + "' must be an EDGE_TO_CLOUD type");
+                    }
+                }
+            }
+        }
     }
 
     private static void checkPositive(String prefix, String field, Integer value,

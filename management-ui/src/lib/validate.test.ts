@@ -303,6 +303,48 @@ describe("validateConfig tcpSession rules", () => {
       "a: tcpSession: inboundType 'DEVICE_COMMAND' must be an EDGE_TO_CLOUD type",
     ]);
   });
+
+  it("valid resolver passes", () => {
+    const d = device({ host: "10.0.0.5", tcpSession: clientResolver({ STATUS: "CONFIG_ACK" }) });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([]);
+  });
+
+  it("inboundType and resolver are mutually exclusive", () => {
+    const d = device({
+      host: "10.0.0.5",
+      tcpSession: {
+        mode: "PERSISTENT",
+        role: "CLIENT",
+        port: 9001,
+        heartbeat: { sendIntervalSec: 30, sendPayload: "PING", missThreshold: 3 },
+        inboundType: "CONFIG_ACK",
+        resolver: { kind: "content-pattern", patterns: { S: "CONFIG_ACK" } },
+      },
+    });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession: set either inboundType or resolver, not both",
+    ]);
+  });
+
+  it("resolver kind must not be blank", () => {
+    const d = device({ host: "10.0.0.5", tcpSession: clientResolver({ STATUS: "CONFIG_ACK" }, "") });
+    expect(validateConfig(typeDirections, pool, [d])).toEqual([
+      "a: tcpSession: resolver kind must not be blank",
+    ]);
+  });
+
+  it("resolver must map to known EDGE_TO_CLOUD types", () => {
+    expect(
+      validateConfig(typeDirections, pool, [
+        device({ host: "10.0.0.5", tcpSession: clientResolver({ X: "MYSTERY" }) }),
+      ]),
+    ).toEqual(["a: tcpSession: resolver maps to unknown type 'MYSTERY'"]);
+    expect(
+      validateConfig(typeDirections, pool, [
+        device({ host: "10.0.0.5", tcpSession: clientResolver({ X: "DEVICE_COMMAND" }) }),
+      ]),
+    ).toEqual(["a: tcpSession: resolver type 'DEVICE_COMMAND' must be an EDGE_TO_CLOUD type"]);
+  });
 });
 
 function persistentClient(inboundType: string) {
@@ -322,5 +364,15 @@ function serverSession(listenPort: number, handshakeId: string | null) {
     listenPort,
     handshakeId,
     heartbeat: { expectInboundSec: 60, missThreshold: 2 },
+  };
+}
+
+function clientResolver(patterns: Record<string, string>, kind = "content-pattern") {
+  return {
+    mode: "PERSISTENT" as const,
+    role: "CLIENT" as const,
+    port: 9001,
+    heartbeat: { sendIntervalSec: 30, sendPayload: "PING", missThreshold: 3 },
+    resolver: { kind, patterns },
   };
 }

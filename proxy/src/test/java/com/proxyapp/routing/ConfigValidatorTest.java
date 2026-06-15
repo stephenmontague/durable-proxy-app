@@ -4,6 +4,7 @@ import com.proxyapp.profile.DeviceFleetProfile;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -339,5 +340,49 @@ class ConfigValidatorTest {
     private static TcpSession persistentClient(String inboundType) {
         return new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT, 9001, null, null,
                 new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null, inboundType);
+    }
+
+    @Test
+    void validResolverPasses() {
+        EdgeConfig device = resolverClient(Map.of("STATUS", "COMMAND_RESULT")); // EDGE_TO_CLOUD type
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void inboundTypeAndResolverAreMutuallyExclusive() {
+        // each individually valid -> only the mutual-exclusion error
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null,
+                "COMMAND_RESULT", new ResolverConfig("content-pattern", Map.of("S", "COMMAND_RESULT")));
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: set either inboundType or resolver, not both");
+    }
+
+    @Test
+    void resolverKindMustNotBeBlank() {
+        EdgeConfig device = resolverClient("", Map.of("STATUS", "COMMAND_RESULT"));
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: resolver kind must not be blank");
+    }
+
+    @Test
+    void resolverMustMapToKnownEdgeToCloudTypes() {
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(resolverClient(Map.of("X", "MYSTERY")))))
+                .containsExactly("a: tcpSession: resolver maps to unknown type 'MYSTERY'");
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(resolverClient(Map.of("X", "DEVICE_COMMAND")))))
+                .containsExactly("a: tcpSession: resolver type 'DEVICE_COMMAND' must be an EDGE_TO_CLOUD type");
+    }
+
+    private static EdgeConfig resolverClient(Map<String, String> patterns) {
+        return resolverClient("content-pattern", patterns);
+    }
+
+    private static EdgeConfig resolverClient(String kind, Map<String, String> patterns) {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null,
+                null, new ResolverConfig(kind, patterns));
+        return new EdgeConfig("a", null, "10.0.0.5", null, null, null, List.of(), null, session);
     }
 }

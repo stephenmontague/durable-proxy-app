@@ -16,6 +16,7 @@ import com.proxyapp.ingress.InboundGateway;
 import com.proxyapp.ingress.TcpSocketServer;
 import com.proxyapp.profile.Profile;
 import com.proxyapp.profile.ProfileRegistry;
+import com.proxyapp.routing.ContentPatternResolver;
 import com.proxyapp.routing.FilenamePatternResolver;
 import com.proxyapp.routing.MessageCatalog;
 import com.proxyapp.routing.MessageTypeResolver;
@@ -64,7 +65,7 @@ public class ProxyAppConfig {
 
     @Bean
     public List<MessageTypeResolver> messageTypeResolvers() {
-        return List.of(new FilenamePatternResolver());
+        return List.of(new FilenamePatternResolver(), new ContentPatternResolver());
     }
 
     /** Standalone-activity client; the starter exposes the service stubs + namespace. */

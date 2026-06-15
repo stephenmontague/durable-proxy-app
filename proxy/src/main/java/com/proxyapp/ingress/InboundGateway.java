@@ -4,9 +4,11 @@ import com.proxyapp.codec.CodecRegistry;
 import com.proxyapp.config.ProxyProperties;
 import com.proxyapp.model.CanonicalMessage;
 import com.proxyapp.routing.CatalogEntry;
+import com.proxyapp.routing.MessageCatalog;
 import com.proxyapp.routing.MessageType;
 import com.proxyapp.routing.MessageTypeResolver;
 import com.proxyapp.routing.MessageTypeResolver.InboundContext;
+import com.proxyapp.routing.ResolverConfig;
 import com.proxyapp.routing.RouteTable;
 import com.proxyapp.routing.RoutingState;
 import com.proxyapp.routing.Transport;
@@ -87,19 +89,47 @@ public class InboundGateway {
         if (!routingState.enabled()) {
             return;
         }
-        String inboundType = config.session().inboundType();
-        if (inboundType == null) {
-            log.debug("device {} sent an unsolicited frame but no inboundType is configured; dropping",
-                    config.deviceId());
-            return;
+        MessageCatalog catalog = routingState.table().catalog();
+        ResolverConfig resolverConfig = config.session().resolver();
+        CatalogEntry entry;
+        if (resolverConfig != null) {
+            entry = resolveSessionType(config, resolverConfig, raw, catalog);
+        } else {
+            String inboundType = config.session().inboundType();
+            if (inboundType == null) {
+                log.debug("device {} sent an unsolicited frame but no inboundType/resolver is "
+                        + "configured; dropping", config.deviceId());
+                return;
+            }
+            entry = catalog.entry(MessageType.of(inboundType)).orElse(null);
+            if (entry == null) {
+                log.warn("device {} inboundType '{}' is not in the catalog; dropping frame",
+                        config.deviceId(), inboundType);
+            }
         }
-        CatalogEntry entry = routingState.table().catalog().entry(MessageType.of(inboundType)).orElse(null);
         if (entry == null) {
-            log.warn("device {} inboundType '{}' is not in the catalog; dropping frame",
-                    config.deviceId(), inboundType);
-            return;
+            return; // could not type the frame (already logged); drop it, keep the link up
         }
         enqueue(entry, raw, "device '" + config.deviceId() + "' session");
+    }
+
+    /** Type a session frame via its resolver (content rule), mapping the result to a catalog entry. */
+    private CatalogEntry resolveSessionType(DeviceSessionConfig config, ResolverConfig resolverConfig,
+                                            byte[] raw, MessageCatalog catalog) {
+        MessageTypeResolver resolver = resolvers.get(resolverConfig.kind());
+        if (resolver == null) {
+            log.warn("device {} session resolver kind '{}' is not registered; dropping frame",
+                    config.deviceId(), resolverConfig.kind());
+            return null;
+        }
+        CatalogEntry entry = resolver
+                .resolve(resolverConfig, new InboundContext(Transport.TCP, config.deviceId(), null, raw))
+                .flatMap(catalog::entry)
+                .orElse(null);
+        if (entry == null) {
+            log.warn("device {} session resolver could not type a frame; dropping", config.deviceId());
+        }
+        return entry;
     }
 
     /** Decode + start the durable DeliverToCloud activity (ack-after-enqueue, dedup by activity id). */

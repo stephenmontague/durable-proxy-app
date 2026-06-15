@@ -271,6 +271,24 @@ function validateTcpSession(
       errors.push(`${prefix}: inboundType '${s.inboundType}' must be an EDGE_TO_CLOUD type`);
     }
   }
+  if (s.inboundType != null && s.resolver != null) {
+    errors.push(`${prefix}: set either inboundType or resolver, not both`);
+  }
+  if (s.resolver != null) {
+    if (s.resolver.kind == null || s.resolver.kind.trim() === "") {
+      errors.push(`${prefix}: resolver kind must not be blank`);
+    }
+    if (s.resolver.patterns != null) {
+      for (const target of Object.values(s.resolver.patterns)) {
+        const direction = typeDirections[target];
+        if (!direction) {
+          errors.push(`${prefix}: resolver maps to unknown type '${target}'`);
+        } else if (direction !== "EDGE_TO_CLOUD") {
+          errors.push(`${prefix}: resolver type '${target}' must be an EDGE_TO_CLOUD type`);
+        }
+      }
+    }
+  }
 }
 
 function checkPositive(
