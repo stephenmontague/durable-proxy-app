@@ -153,6 +153,11 @@ redelivery. There is deliberately **no local durable spool** — Temporal Cloud'
 the SDK's auto-reconnecting channel cover transient unreachability, and an offline proxy
 just means the work waits in Temporal and delivers on reconnect.
 
+> **Roadmap — persistent TCP sessions:** for real-time/industrial devices that need a
+> *maintained* socket with bidirectional heartbeats (not connect-per-message), a per-device
+> persistent-session mode is designed in [docs/persistent-tcp-sessions.md](docs/persistent-tcp-sessions.md)
+> — Temporal still does durable delivery; a session manager owns the live link + heartbeats.
+
 ## Tests
 
 ```sh

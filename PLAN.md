@@ -533,6 +533,10 @@ the two in lockstep (like the WireString tests).
 
 ## Later — Hardening & Rollout (not started)
 
+- **Persistent TCP sessions + heartbeats:** a per-device persistent-session mode — maintained
+  connection (proxy-as-client or proxy-as-server), configurable bidirectional heartbeats, and a
+  multi-device connection table in the UI — with Temporal still doing durable delivery on top.
+  Design: [docs/persistent-tcp-sessions.md](docs/persistent-tcp-sessions.md).
 - **More transports / framing:** SFTP; HTTP auth schemes; additional TCP framings beyond the
   configurable start/stop delimiters already shipped.
 - **More codecs:** fixed-width and delimited (CSV) behind `MessageCodec`, per-(edge,type) selection.
