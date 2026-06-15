@@ -60,7 +60,41 @@ public final class ConfigValidator {
                 validateBinding(typeDirections, pool, inboundChannelOwners, device, binding, errors);
             }
         }
+        validateServerPorts(devices, errors);
         return errors;
+    }
+
+    /**
+     * Persistent SERVER devices may share one listen port (port economy), but only if each carries a
+     * distinct, non-blank handshakeId so the proxy can tell them apart on connect. Mirrored in
+     * validate.ts.
+     */
+    private static void validateServerPorts(List<EdgeConfig> devices, List<String> errors) {
+        Map<Integer, List<EdgeConfig>> byPort = new HashMap<>();
+        for (EdgeConfig device : devices) {
+            TcpSession s = device.tcpSession();
+            if (s != null && s.isPersistent() && s.role() == TcpSession.Role.SERVER
+                    && s.listenPort() != null) {
+                byPort.computeIfAbsent(s.listenPort(), k -> new ArrayList<>()).add(device);
+            }
+        }
+        for (Map.Entry<Integer, List<EdgeConfig>> entry : byPort.entrySet()) {
+            List<EdgeConfig> group = entry.getValue();
+            if (group.size() < 2) {
+                continue; // a dedicated port needs no handshake
+            }
+            Set<String> seen = new HashSet<>();
+            for (EdgeConfig device : group) {
+                String handshakeId = device.tcpSession().handshakeId();
+                if (handshakeId == null || handshakeId.isBlank()) {
+                    errors.add(device.deviceId() + ": tcpSession: SERVER listen port " + entry.getKey()
+                            + " is shared, so a handshakeId is required");
+                } else if (!seen.add(handshakeId)) {
+                    errors.add(device.deviceId() + ": tcpSession: duplicate handshakeId '" + handshakeId
+                            + "' on shared SERVER listen port " + entry.getKey());
+                }
+            }
+        }
     }
 
     private static void validateBinding(Map<String, String> typeDirections, Set<Integer> pool,
@@ -203,10 +237,11 @@ public final class ConfigValidator {
                 errors.add(prefix + ".port must be between 1 and 65535");
             }
         } else {
-            if (s.listenPort() == null && (s.handshakeId() == null || s.handshakeId().isBlank())) {
-                errors.add(prefix + ": SERVER role requires listenPort or handshakeId");
-            }
-            if (s.listenPort() != null && (s.listenPort() < 1 || s.listenPort() > 65535)) {
+            // SERVER always needs a port to listen on; handshakeId only disambiguates a shared port
+            // (checked across devices in validateServerPorts).
+            if (s.listenPort() == null) {
+                errors.add(prefix + ": SERVER role requires a listenPort");
+            } else if (s.listenPort() < 1 || s.listenPort() > 65535) {
                 errors.add(prefix + ".listenPort must be between 1 and 65535");
             }
         }

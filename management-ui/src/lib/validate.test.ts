@@ -180,7 +180,7 @@ describe("validateConfig tcpSession rules", () => {
     ]);
   });
 
-  it("SERVER session requires listenPort or handshakeId", () => {
+  it("SERVER session requires a listenPort", () => {
     const d = device({
       tcpSession: {
         mode: "PERSISTENT",
@@ -189,8 +189,31 @@ describe("validateConfig tcpSession rules", () => {
       },
     });
     expect(validateConfig(typeDirections, pool, [d])).toEqual([
-      "a: tcpSession: SERVER role requires listenPort or handshakeId",
+      "a: tcpSession: SERVER role requires a listenPort",
     ]);
+  });
+
+  it("shared SERVER port requires a handshake", () => {
+    const a = device({ deviceId: "a", host: null, tcpSession: serverSession(6005, null) });
+    const b = device({ deviceId: "b", host: null, tcpSession: serverSession(6005, null) });
+    expect(validateConfig(typeDirections, pool, [a, b])).toEqual([
+      "a: tcpSession: SERVER listen port 6005 is shared, so a handshakeId is required",
+      "b: tcpSession: SERVER listen port 6005 is shared, so a handshakeId is required",
+    ]);
+  });
+
+  it("shared SERVER port requires distinct handshakes", () => {
+    const a = device({ deviceId: "a", host: null, tcpSession: serverSession(6005, "dev") });
+    const b = device({ deviceId: "b", host: null, tcpSession: serverSession(6005, "dev") });
+    expect(validateConfig(typeDirections, pool, [a, b])).toEqual([
+      "b: tcpSession: duplicate handshakeId 'dev' on shared SERVER listen port 6005",
+    ]);
+  });
+
+  it("shared SERVER port with distinct handshakes passes", () => {
+    const a = device({ deviceId: "a", host: null, tcpSession: serverSession(6005, "dev-a") });
+    const b = device({ deviceId: "b", host: null, tcpSession: serverSession(6005, "dev-b") });
+    expect(validateConfig(typeDirections, pool, [a, b])).toEqual([]);
   });
 
   it("persistent session requires at least one liveness mechanism", () => {
@@ -289,5 +312,15 @@ function persistentClient(inboundType: string) {
     port: 9001,
     heartbeat: { sendIntervalSec: 30, sendPayload: "PING", missThreshold: 3 },
     inboundType,
+  };
+}
+
+function serverSession(listenPort: number, handshakeId: string | null) {
+  return {
+    mode: "PERSISTENT" as const,
+    role: "SERVER" as const,
+    listenPort,
+    handshakeId,
+    heartbeat: { expectInboundSec: 60, missThreshold: 2 },
   };
 }

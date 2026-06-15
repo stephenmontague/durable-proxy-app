@@ -145,13 +145,22 @@ export function ConnectionFields({
               </Select>
             </Mini>
             {session.role === "SERVER" ? (
-              <NumberField
-                label="Listen port"
-                hint="Local port the proxy listens on for this device."
-                value={session.listenPort}
-                placeholder="6010"
-                onChange={(v) => onChange({ ...session, listenPort: v })}
-              />
+              <>
+                <NumberField
+                  label="Listen port"
+                  hint="Local port the proxy listens on for this device."
+                  value={session.listenPort}
+                  placeholder="6010"
+                  onChange={(v) => onChange({ ...session, listenPort: v })}
+                />
+                <TextField
+                  label="Handshake id"
+                  hint="Only when devices share one listen port: the device sends this id (newline-terminated) as its first frame so the proxy can tell them apart."
+                  value={session.handshakeId}
+                  placeholder="device-a"
+                  onChange={(v) => onChange({ ...session, handshakeId: v })}
+                />
+              </>
             ) : (
               <NumberField
                 label="Device port"

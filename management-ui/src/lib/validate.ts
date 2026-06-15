@@ -53,7 +53,40 @@ export function validateConfig(
       validateBinding(typeDirections, pool, inboundChannelOwners, device, binding, errors);
     }
   }
+  validateServerPorts(devices, errors);
   return errors;
+}
+
+// Mirrors ConfigValidator.validateServerPorts: persistent SERVER devices may share a listen port,
+// but only with a distinct, non-blank handshakeId each so the proxy can tell them apart on connect.
+function validateServerPorts(devices: EdgeConfig[], errors: string[]): void {
+  const byPort = new Map<number, EdgeConfig[]>();
+  for (const device of devices) {
+    const s = device.tcpSession;
+    if (s != null && s.mode === "PERSISTENT" && s.role === "SERVER" && s.listenPort != null) {
+      const group = byPort.get(s.listenPort) ?? [];
+      group.push(device);
+      byPort.set(s.listenPort, group);
+    }
+  }
+  for (const [port, group] of byPort) {
+    if (group.length < 2) continue; // a dedicated port needs no handshake
+    const seen = new Set<string>();
+    for (const device of group) {
+      const handshakeId = device.tcpSession?.handshakeId;
+      if (handshakeId == null || handshakeId.trim() === "") {
+        errors.push(
+          `${device.deviceId}: tcpSession: SERVER listen port ${port} is shared, so a handshakeId is required`,
+        );
+      } else if (seen.has(handshakeId)) {
+        errors.push(
+          `${device.deviceId}: tcpSession: duplicate handshakeId '${handshakeId}' on shared SERVER listen port ${port}`,
+        );
+      } else {
+        seen.add(handshakeId);
+      }
+    }
+  }
 }
 
 function validateBinding(
@@ -197,10 +230,11 @@ function validateTcpSession(
       errors.push(`${prefix}.port must be between 1 and 65535`);
     }
   } else {
-    if (s.listenPort == null && (s.handshakeId == null || s.handshakeId.trim() === "")) {
-      errors.push(`${prefix}: SERVER role requires listenPort or handshakeId`);
-    }
-    if (s.listenPort != null && (s.listenPort < 1 || s.listenPort > 65535)) {
+    // SERVER always needs a port to listen on; handshakeId only disambiguates a shared port
+    // (checked across devices in validateServerPorts).
+    if (s.listenPort == null) {
+      errors.push(`${prefix}: SERVER role requires a listenPort`);
+    } else if (s.listenPort < 1 || s.listenPort > 65535) {
       errors.push(`${prefix}.listenPort must be between 1 and 65535`);
     }
   }

@@ -3,9 +3,11 @@
 > **Status:** implemented (phases 1–6) across the proxy, the management UI, and the `dummy-edge`
 > demo. This remains the design of record; the code lives in `com.proxyapp.session`
 > (`TcpSessionManager`, `DeviceSession`) + `TcpSession` config, with the connection table in the UI.
-> Try it: `just run-dummy-edge-persistent` then `just demo-config-persistent`. The one piece left as
-> a documented extension is the **shared listen-port / handshake** SERVER mode (per-device listen
-> ports work today) and **multi-type inbound** via `MessageTypeResolver` (single `inboundType` works).
+> Try it: `just run-dummy-edge-persistent` then `just demo-config-persistent`. SERVER role supports
+> both a per-device listen port and **shared listen ports with handshake demux** (the
+> `TcpSessionManager` reads each device's newline-terminated handshake id on connect). Unsolicited
+> inbound is typed by a single `inboundType` today; a content `MessageTypeResolver` for several
+> types on one socket is the remaining extension.
 
 ## Context
 

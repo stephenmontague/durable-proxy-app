@@ -128,6 +128,33 @@ class TcpSessionManagerTest {
         }
     }
 
+    @Test
+    void sharedServerPortDemuxesByHandshake() throws Exception {
+        List<String> routed = new CopyOnWriteArrayList<>(); // "deviceId:frame"
+        int port = StubTcpServer.freePort();
+        TcpSessionManager manager = new TcpSessionManager(
+                (cfg, frame) -> routed.add(cfg.deviceId() + ":" + new String(frame, StandardCharsets.ISO_8859_1)),
+                500, 50, 200, 15_000);
+        try {
+            manager.reconcile(List.of(serverCfg("dev-a", port, "hs-a"), serverCfg("dev-b", port, "hs-b")));
+            // device A announces hs-a then pushes a frame -> must be routed to dev-a
+            try (Socket a = new Socket()) {
+                a.connect(new InetSocketAddress("127.0.0.1", port), 2_000);
+                a.getOutputStream().write("hs-a\nSTATUS-A\n".getBytes(StandardCharsets.ISO_8859_1));
+                a.getOutputStream().flush();
+                awaitTrue(() -> routed.contains("dev-a:STATUS-A"), 3_000);
+            }
+            try (Socket b = new Socket()) {
+                b.connect(new InetSocketAddress("127.0.0.1", port), 2_000);
+                b.getOutputStream().write("hs-b\nSTATUS-B\n".getBytes(StandardCharsets.ISO_8859_1));
+                b.getOutputStream().flush();
+                awaitTrue(() -> routed.contains("dev-b:STATUS-B"), 3_000);
+            }
+        } finally {
+            manager.shutdown();
+        }
+    }
+
     private static DeviceSessionConfig cfg(String deviceId, int port) {
         TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
                 port, null, null, new TcpSession.Heartbeat(null, null, null, null, 5, 3), null);
@@ -135,8 +162,12 @@ class TcpSessionManagerTest {
     }
 
     private static DeviceSessionConfig serverCfg(String deviceId, int listenPort) {
+        return serverCfg(deviceId, listenPort, null);
+    }
+
+    private static DeviceSessionConfig serverCfg(String deviceId, int listenPort, String handshakeId) {
         TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
-                null, listenPort, null, new TcpSession.Heartbeat(null, null, null, null, 5, 3), null);
+                null, listenPort, handshakeId, new TcpSession.Heartbeat(null, null, null, null, 5, 3), null);
         return new DeviceSessionConfig(deviceId, null, null, session);
     }
 

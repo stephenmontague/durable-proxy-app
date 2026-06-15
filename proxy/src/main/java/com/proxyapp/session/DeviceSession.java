@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
@@ -27,10 +26,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
- * One persistent connection to a device. CLIENT role only for now: the proxy dials the device and
- * keeps the socket warm with heartbeats, reconnecting with backoff on any drop. A single
- * connect/read loop runs on the manager's connect executor; the heartbeat ping and liveness check
- * run as periodic tasks on the shared scheduler.
+ * One persistent connection to a device. CLIENT role dials the device and keeps the socket warm,
+ * reconnecting with backoff on any drop. SERVER role is passive — the {@link TcpSessionManager}
+ * acceptor owns the listen port and hands this session each accepted socket (after handshake demux
+ * for shared ports) via {@link #serveAcceptedSocket}. Either way the heartbeat ping and liveness
+ * check run as periodic tasks on the shared scheduler and the read loop is identical.
  *
  * <p>Owned by {@link TcpSessionManager} and lives entirely in worker-process code — never a
  * Temporal workflow or activity (it does blocking socket I/O, and heartbeats must never become
@@ -146,7 +146,11 @@ final class DeviceSession {
     }
 
     void start() {
-        connectExecutor.execute(this::runSessionLoop);
+        if (role == TcpSession.Role.CLIENT) {
+            connectExecutor.execute(this::runClientLoop);
+        } else {
+            state = DeviceSessionState.CONNECTING; // SERVER: wait for the acceptor to hand us a socket
+        }
         if (pingFrame != null) {
             long periodMs = sendIntervalSec * 1_000L;
             pingTask = scheduler.scheduleAtFixedRate(this::sendPing, periodMs, periodMs, TimeUnit.MILLISECONDS);
@@ -227,14 +231,6 @@ final class DeviceSession {
 
     // ---- connect / read loop (connect executor thread) ----
 
-    private void runSessionLoop() {
-        if (role == TcpSession.Role.SERVER) {
-            runServerLoop();
-        } else {
-            runClientLoop();
-        }
-    }
-
     /** CLIENT: dial the device, reconnecting with backoff after any drop. */
     private void runClientLoop() {
         long backoff = minBackoffMs;
@@ -270,57 +266,36 @@ final class DeviceSession {
     }
 
     /**
-     * SERVER: bind a per-device listen port and accept the device's inbound connection, serving one
-     * connection at a time and re-accepting after a drop. (The shared listen-port / handshake mode
-     * is a documented future extension; this implements the recommended per-device port.)
+     * SERVER: serve a socket the manager's acceptor handed us (already demuxed to this device by
+     * listen port + handshake). A fresh dial-in supersedes the current connection; on drop the link
+     * goes DOWN until the device dials in again.
      */
-    private void runServerLoop() {
-        Integer listenPort = config.session().listenPort();
-        if (listenPort == null) {
-            log.warn("device {} SERVER session has no listenPort; shared listen-port / handshake mode "
-                    + "is not implemented yet — configure a listenPort. Link stays DOWN.",
-                    config.deviceId());
-            state = DeviceSessionState.DOWN;
+    void serveAcceptedSocket(Socket s) {
+        if (closed) {
+            closeSocket(s);
             return;
         }
-        try (ServerSocket server = new ServerSocket(listenPort)) {
-            server.setSoTimeout(READ_IDLE_MS); // wake periodically so close() is noticed
-            log.info("device {} SERVER session listening on port {}", config.deviceId(), listenPort);
-            while (!closed) {
-                state = DeviceSessionState.CONNECTING; // awaiting the device to dial in
-                Socket s;
-                try {
-                    s = server.accept();
-                } catch (SocketTimeoutException e) {
-                    continue; // still waiting for the device — stay CONNECTING
-                } catch (IOException e) {
-                    if (!closed) {
-                        log.debug("device {} accept failed: {}", config.deviceId(), e.getMessage());
-                    }
-                    continue;
-                }
-                try {
-                    s.setSoTimeout(READ_IDLE_MS);
-                    onConnected(s);
-                    readLoop(s);
-                } catch (IOException e) {
-                    if (!closed) {
-                        log.debug("device {} server read ended: {}", config.deviceId(), e.getMessage());
-                    }
-                } finally {
-                    closeSocket(s);
-                    socket.compareAndSet(s, null);
-                    out.set(null);
-                    if (!closed) {
-                        state = DeviceSessionState.DOWN;
-                    }
-                }
-            }
+        closeSocket(socket.getAndSet(null)); // a new connection supersedes the current one
+        connectExecutor.execute(() -> serve(s));
+    }
+
+    private void serve(Socket s) {
+        try {
+            s.setSoTimeout(READ_IDLE_MS);
+            onConnected(s);
+            readLoop(s);
         } catch (IOException e) {
-            log.error("device {} cannot bind SERVER listen port {}: {}",
-                    config.deviceId(), listenPort, e.getMessage());
+            if (!closed) {
+                log.debug("device {} session read ended: {}", config.deviceId(), e.getMessage());
+            }
+        } finally {
+            closeSocket(s);
+            socket.compareAndSet(s, null);
+            out.set(null);
+            if (!closed) {
+                state = DeviceSessionState.DOWN;
+            }
         }
-        state = DeviceSessionState.DOWN;
     }
 
     private void onConnected(Socket s) throws IOException {

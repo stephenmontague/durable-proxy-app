@@ -222,13 +222,40 @@ class ConfigValidatorTest {
     }
 
     @Test
-    void serverSessionRequiresListenPortOrHandshake() {
+    void serverSessionRequiresListenPort() {
         TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
                 null, null, null, new TcpSession.Heartbeat(null, null, null, null, 60, 2), null);
         EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
                 List.of(), null, session);
         assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
-                .containsExactly("a: tcpSession: SERVER role requires listenPort or handshakeId");
+                .containsExactly("a: tcpSession: SERVER role requires a listenPort");
+    }
+
+    @Test
+    void sharedServerPortRequiresHandshake() {
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(
+                serverDevice("a", 6005, null), serverDevice("b", 6005, null)))).containsExactly(
+                "a: tcpSession: SERVER listen port 6005 is shared, so a handshakeId is required",
+                "b: tcpSession: SERVER listen port 6005 is shared, so a handshakeId is required");
+    }
+
+    @Test
+    void sharedServerPortRequiresDistinctHandshakes() {
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(
+                serverDevice("a", 6005, "dev"), serverDevice("b", 6005, "dev")))).containsExactly(
+                "b: tcpSession: duplicate handshakeId 'dev' on shared SERVER listen port 6005");
+    }
+
+    @Test
+    void sharedServerPortWithDistinctHandshakesPasses() {
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(
+                serverDevice("a", 6005, "dev-a"), serverDevice("b", 6005, "dev-b")))).isEmpty();
+    }
+
+    private static EdgeConfig serverDevice(String id, int listenPort, String handshakeId) {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
+                null, listenPort, handshakeId, new TcpSession.Heartbeat(null, null, null, null, 60, 2), null);
+        return new EdgeConfig(id, null, null, null, null, null, List.of(), null, session);
     }
 
     @Test

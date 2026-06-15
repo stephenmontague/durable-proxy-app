@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -181,14 +182,14 @@ class DeviceSessionTest {
     }
 
     @Test
-    void serverRoleAcceptsAnIncomingDeviceConnection() throws Exception {
-        int listenPort = StubTcpServer.freePort();
-        DeviceSession session = serverSession(listenPort);
+    void serverRoleServesAHandedSocket() throws Exception {
+        // SERVER sessions are passive: the manager's acceptor hands over an accepted socket.
+        DeviceSession session = serverSession();
         session.start();
-        try (Socket device = new Socket()) {
-            device.connect(new InetSocketAddress("127.0.0.1", listenPort), 2_000);
+        try (ServerSocket relay = new ServerSocket(0); Socket device = new Socket()) {
+            device.connect(new InetSocketAddress("127.0.0.1", relay.getLocalPort()), 2_000);
+            session.serveAcceptedSocket(relay.accept());
             awaitState(session, DeviceSessionState.UP, 2_000);
-            // the device pushes an unsolicited frame over the same accepted socket
             device.getOutputStream().write("STATUS\n".getBytes(StandardCharsets.ISO_8859_1));
             device.getOutputStream().flush();
             awaitTrue(() -> !inboundFrames.isEmpty(), 2_000);
@@ -206,9 +207,10 @@ class DeviceSessionTest {
         return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200, 500, inboundFrames::add);
     }
 
-    private DeviceSession serverSession(int listenPort) {
+    private DeviceSession serverSession() {
+        // listenPort is config the manager's acceptor would use; this passive session is handed a socket.
         TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
-                null, listenPort, null, watchdog(60, 5), null);
+                null, 9999, null, watchdog(60, 5), null);
         DeviceSessionConfig cfg = new DeviceSessionConfig("dev-1", null, null, session);
         return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200, 500, inboundFrames::add);
     }
