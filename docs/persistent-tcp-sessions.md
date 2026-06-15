@@ -1,6 +1,11 @@
 # Design: Persistent TCP Sessions + Heartbeats (multi-device)
 
-> **Status:** design only — not yet implemented. Tracked under PLAN.md Part 3 "Later — Hardening & rollout."
+> **Status:** implemented (phases 1–6) across the proxy, the management UI, and the `dummy-edge`
+> demo. This remains the design of record; the code lives in `com.proxyapp.session`
+> (`TcpSessionManager`, `DeviceSession`) + `TcpSession` config, with the connection table in the UI.
+> Try it: `just run-dummy-edge-persistent` then `just demo-config-persistent`. The one piece left as
+> a documented extension is the **shared listen-port / handshake** SERVER mode (per-device listen
+> ports work today) and **multi-type inbound** via `MessageTypeResolver` (single `inboundType` works).
 
 ## Context
 

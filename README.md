@@ -93,6 +93,9 @@ just demo-apply-bad-config# out-of-pool port → rejected with a clear message
 just demo-catalog         # define a custom message type at runtime (xml codec), no restart
 just demo-command-http-xml   # XML round trip: device emits XML, xml codec extracts the id
                           #   (needs: just run-dummy-edge-xml)
+just demo-config-persistent  # CONFIG_UPDATE over a kept-alive heartbeated socket; the device
+                          #   pushes CONFIG_ACK back over the same socket
+                          #   (needs: just run-dummy-edge-persistent)
 just demo-state           # control workflow state (via cloud → Temporal query)
 just proxy-status         # proxy's locally applied state (listeners, routes)
 ```
@@ -133,9 +136,13 @@ proxy/src/main/java/com/proxyapp/
 │                  activity/ DeliverToEdgeActivity ("TransmitToDevice"), DeliverToCloudActivity
 ├── ingress/       InboundGateway (channel→type→decode→enqueue→ack),
 │                  HttpIngressController, TcpSocketServer, FtpIngressListener, AdminController
-└── control/       ProxyControlWorkflow(+Impl), ProxyControlStarter, ProxyControlPoller, Reconciler,
-                   CatalogEntryDto + CatalogValidator (operator-editable message catalog)
+├── control/       ProxyControlWorkflow(+Impl), ProxyControlStarter, ProxyControlPoller, Reconciler,
+│                  CatalogEntryDto + CatalogValidator (operator-editable message catalog)
+└── session/       TcpSessionManager (per-device connection table), DeviceSession (CLIENT/SERVER
+                   heartbeated link), DeviceSessionStatus — persistent TCP sessions
 ```
+
+The persistent-session config (`TcpSession`) lives in `routing/` alongside `EdgeConfig`.
 
 ## Per-transport reliability profile
 
@@ -153,10 +160,14 @@ redelivery. There is deliberately **no local durable spool** — Temporal Cloud'
 the SDK's auto-reconnecting channel cover transient unreachability, and an offline proxy
 just means the work waits in Temporal and delivers on reconnect.
 
-> **Roadmap — persistent TCP sessions:** for real-time/industrial devices that need a
-> *maintained* socket with bidirectional heartbeats (not connect-per-message), a per-device
-> persistent-session mode is designed in [docs/persistent-tcp-sessions.md](docs/persistent-tcp-sessions.md)
-> — Temporal still does durable delivery; a session manager owns the live link + heartbeats.
+> **Persistent TCP sessions:** for real-time/industrial devices that need a *maintained* socket
+> with bidirectional heartbeats (not connect-per-message), a per-device persistent-session mode
+> keeps the link warm while Temporal still does durable delivery — a session manager owns the live
+> link + heartbeats (CLIENT or SERVER role, configurable liveness, correlated sends, unsolicited
+> inbound → `DeliverToCloud`). Configure it per device under the Config tab's **Connection**
+> section and watch per-device UP/DOWN in the **Persistent connections** table. Design + internals:
+> [docs/persistent-tcp-sessions.md](docs/persistent-tcp-sessions.md). Demo:
+> `just run-dummy-edge-persistent` then `just demo-config-persistent`.
 
 ## Tests
 

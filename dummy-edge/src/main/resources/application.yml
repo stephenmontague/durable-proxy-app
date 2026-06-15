@@ -58,3 +58,18 @@ spring:
 
 edge:
   xml: true
+
+---
+# Persistent-session device (just run-dummy-edge-persistent): the device listens on 9100, the
+# proxy dials in as a CLIENT and keeps the socket warm with PING/PONG heartbeats. A command rides
+# the live socket and the device pushes CONFIG_ACK back over the same socket. Pair with
+# config/persistent-routes.json (just demo-config-persistent).
+spring:
+  config:
+    activate:
+      on-profile: persistent
+
+edge:
+  persistent:
+    enabled: true
+    listen-port: 9100

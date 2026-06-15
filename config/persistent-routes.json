@@ -1,0 +1,23 @@
+[
+  {
+    "deviceId": "edge-gateway-01",
+    "baseUrl": "http://localhost:8092",
+    "host": "127.0.0.1",
+    "bindings": [
+      { "messageType": "CONFIG_UPDATE", "transport": "TCP", "channel": { "kind": "PORT", "value": "9100" } }
+    ],
+    "tcpSession": {
+      "mode": "PERSISTENT",
+      "role": "CLIENT",
+      "port": 9100,
+      "heartbeat": {
+        "sendIntervalSec": 5,
+        "sendPayload": "PING",
+        "expectReply": "PONG",
+        "replyTimeoutMs": 3000,
+        "missThreshold": 3
+      },
+      "inboundType": "CONFIG_ACK"
+    }
+  }
+]

@@ -99,6 +99,11 @@ run-dummy-edge-framed:
 run-dummy-edge-xml:
     mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,xml
 
+# Run the dummy edge as a persistent-session device (listens on 9100; the proxy dials in and
+# keeps the socket warm with PING/PONG heartbeats). Pair with: just demo-config-persistent
+run-dummy-edge-persistent:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,persistent
+
 # Run the management UI (Next.js dev server on http://localhost:3000)
 run-ui:
     @[ -d management-ui/node_modules ] || (cd management-ui && npm install)
@@ -175,6 +180,24 @@ demo-config-tcp-framed:
     @sleep 3
     @echo ">> Check dummy-cloud received the CONFIG_ACK (pushed back as a framed message):"
     curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CFG-FRAMED")]'
+
+# Persistent TCP session: the proxy keeps a heartbeated socket to the device (no connect-per-message).
+# A CONFIG_UPDATE rides the live socket; the device pushes CONFIG_ACK back over the SAME socket.
+# Requires the device on the persistent profile: just run-dummy-edge-persistent
+demo-config-persistent:
+    @echo ">> Applying persistent-session config (proxy dials the device; heartbeats start) ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
+        -H 'content-type: application/json' \
+        --data-binary @config/persistent-routes.json | jq -c '.state.devices[0].tcpSession'
+    @echo ">> Watch the Switchyard console — edge-gateway-01 turns UP in 'Persistent connections'."
+    @sleep 4
+    @echo ">> Triggering CONFIG_UPDATE (delivered over the already-open socket) ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/demo/config \
+        -H 'content-type: application/json' \
+        -d '{"configId":"CFG-SESSION","key":"mode","value":"safe"}' | jq .
+    @sleep 3
+    @echo ">> Cloud received the CONFIG_ACK (pushed back over the same persistent socket):"
+    curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CFG-SESSION")]'
 
 # Add a CUSTOM message type to the live catalog (Part 3) — no code change, no restart.
 # Defines a type outside the starter profile with the xml codec; it shows up in typeDirections immediately.
