@@ -105,7 +105,8 @@ public class PersistentDeviceServer implements SmartLifecycle {
                     continue;
                 }
                 if ("PING".equals(content)) {
-                    writeFramed(out, writeLock, "PONG", start, end); // heartbeat reply
+                    writeFramed(out, writeLock, "PONG", start, end);
+                    log.info("hb  <- PING   -> PONG");
                 } else {
                     onCommand(out, writeLock, content, start, end);
                 }
@@ -117,9 +118,10 @@ public class PersistentDeviceServer implements SmartLifecycle {
 
     private void onCommand(OutputStream out, Object writeLock, String content, byte[] start, byte[] end)
             throws IOException {
-        log.info("device received over persistent socket: {}", content);
+        log.info("<- command: {}", content);
         receivedStore.add("SESSION", String.valueOf(properties.persistent().listenPortOrDefault()), content);
-        writeFramed(out, writeLock, "ACK", start, end); // completes the proxy's correlated send
+        writeFramed(out, writeLock, "ACK", start, end);
+        log.info("-> ACK"); // completes the proxy's correlated send
 
         // Telemetry-emitting devices push on their own cadence (emitLoop); a device with no emit
         // configured answers a command with the paired CONFIG_ACK, like the original demo.

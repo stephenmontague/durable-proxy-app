@@ -117,10 +117,11 @@ sandbox-namespaces:
     -temporal operator namespace create --namespace sandbox-b --retention 24h 2>/dev/null || true
     @temporal operator namespace list | grep -E "Name:.*sandbox-[ab]" || echo "(check: namespaces sandbox-a / sandbox-b)"
 
-# Proxy for a sandbox — same jar, different namespace + port. e.g. just run-proxy-ns sandbox-a 8090
+# Proxy for a sandbox — same jar, different namespace + port. Heartbeat trace on (DEBUG) so the
+# terminal shows the link breathing. e.g. just run-proxy-ns sandbox-a 8090
 run-proxy-ns ns port:
     mvn -q -pl proxy spring-boot:run -Dspring-boot.run.profiles=local \
-        -Dspring-boot.run.arguments="--server.port={{port}} --spring.temporal.namespace={{ns}}"
+        -Dspring-boot.run.arguments="--server.port={{port}} --spring.temporal.namespace={{ns}} --logging.level.com.proxyapp.session=DEBUG"
 
 # Dummy cloud for a sandbox. e.g. just run-cloud-ns sandbox-a 8091
 run-cloud-ns ns port:

@@ -89,6 +89,8 @@ final class DeviceSession {
     private volatile long lastInboundAtMs;    // 0 = never
     private volatile boolean pingOutstanding;
     private volatile long pingDeadlineMs;
+    private volatile long beats;              // heartbeats sent this connection (demo trace)
+    private volatile long connectedAtMs;      // for "link up Xs" in the heartbeat trace
     private final AtomicInteger consecutiveMisses = new AtomicInteger();
     private final AtomicInteger inflight = new AtomicInteger(); // outbound sends awaiting their ack
     private final Semaphore sendSlot = new Semaphore(1);        // single in-flight send at a time
@@ -304,6 +306,8 @@ final class DeviceSession {
         lastInboundAtMs = nowMs(); // grace: treat the fresh connect as recent proof of life
         consecutiveMisses.set(0);
         pingOutstanding = false;
+        beats = 0;
+        connectedAtMs = nowMs();
         state = DeviceSessionState.UP;
         log.info("device {} session UP ({})", config.deviceId(), s.getRemoteSocketAddress());
     }
@@ -357,11 +361,13 @@ final class DeviceSession {
             if (pendingAck != null && contains(frame, frame.length, pendingAck)) {
                 ackReceived = true;
                 ackLock.notifyAll();
+                log.debug("hb {} <- ACK (send complete)", config.deviceId());
                 return;
             }
         }
         if (expectReply != null && contains(frame, frame.length, expectReply)) {
             pingOutstanding = false;
+            log.debug("hb {} <- PONG #{} (link up {})", config.deviceId(), beats, uptime());
             return;
         }
         // Unsolicited device -> cloud frame: hand to the inbound sink (-> DeliverToCloud). A failed
@@ -381,6 +387,8 @@ final class DeviceSession {
         }
         try {
             writeFrame(pingFrame);
+            beats++;
+            log.debug("hb {} -> PING #{}", config.deviceId(), beats);
             if (activeProbe) {
                 pingOutstanding = true;
                 pingDeadlineMs = nowMs() + replyTimeoutMs;
@@ -508,6 +516,12 @@ final class DeviceSession {
 
     private static long nowMs() {
         return System.currentTimeMillis();
+    }
+
+    /** Human "link up" duration since the current connection was established (for the demo trace). */
+    private String uptime() {
+        long s = Math.max(0, nowMs() - connectedAtMs) / 1000;
+        return s < 60 ? s + "s" : (s / 60) + "m" + (s % 60) + "s";
     }
 
     /** Growable byte buffer with cheap endsWith — same shape as TcpSocketServer's frame reader. */
