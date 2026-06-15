@@ -19,11 +19,23 @@ public record EdgeProperties(Proxy proxy, int tcpListenPort, int ftpListenPort, 
 
     /**
      * Persistent-session channel: the device listens on {@code listenPort} for the proxy to dial in
-     * and keep the socket warm. Absent = off. See the {@code persistent} Spring profile.
+     * and keep the socket warm. If {@code emitPayload} is set the device also pushes that frame
+     * every {@code emitIntervalSec} as unsolicited telemetry (a scanner emitting scans, a meter
+     * emitting readings) — verbatim, so it can be CSV, XML, or anything. Absent = off. Framing comes
+     * from {@code edge.tcp} (start/end delimiters); newline when unset.
      */
-    public record Persistent(Boolean enabled, Integer listenPort) {
+    public record Persistent(Boolean enabled, Integer listenPort, String emitPayload,
+                             Integer emitIntervalSec) {
         public int listenPortOrDefault() {
             return listenPort == null ? 9100 : listenPort;
+        }
+
+        public boolean emits() {
+            return emitPayload != null && !emitPayload.isBlank();
+        }
+
+        public int emitIntervalSecOrDefault() {
+            return emitIntervalSec == null ? 15 : emitIntervalSec;
         }
     }
 

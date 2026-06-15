@@ -1,0 +1,74 @@
+# Demo: two installs, one binary — completely different clients
+
+The pitch in one screen: the **same** `proxy.jar` (and the same `dummy-cloud` / `dummy-edge`),
+installed twice, bent to two clients that share nothing — different industry, payload, wire
+framing, and heartbeat cadence — with **zero code changes**. Only the applied config differs, and
+each install is isolated in its own Temporal namespace (exactly how you'd ship one per customer).
+
+|                | **Sandbox A — warehouse sortation** | **Sandbox B — utility / smart-grid** |
+| -------------- | ----------------------------------- | ------------------------------------ |
+| Namespace      | `sandbox-a`                         | `sandbox-b`                          |
+| Message types  | `DIVERT_COMMAND` ↓ · `SCAN_EVENT` ↑ | `SETPOINT_UPDATE` ↓ · `METER_READING` ↑ |
+| Payload / codec| **CSV** / `raw`                     | **XML** / `xml`                      |
+| Framing        | `STX` / `ETX`                       | `<start>` / `end`                    |
+| Link           | persistent CLIENT, **10s** heartbeat| persistent CLIENT, **30s** heartbeat |
+| Device telemetry | emits a CSV `SCAN_EVENT` every 8s | emits an XML `METER_READING` every 12s |
+| Ports          | proxy 8090 · cloud 8091 · edge 8092 · **UI 3000** | proxy 8190 · cloud 8191 · edge 8192 · **UI 3001** |
+
+> The device frames + emits its own native payload over the kept-alive socket; the proxy types
+> each frame via the session's `inboundType` and starts a durable `DeliverToCloud`. So the two
+> payloads flow with no dummy-cloud changes — the warehouse box "speaks CSV," the meter "speaks XML."
+
+## Prerequisites
+- The shared Docker Temporal on `localhost:7233` (or `just temporal-dev`).
+- **Stop the default demo stack first** if it's running — Sandbox A reuses ports 8090–8092.
+- Build once: `just build` and (for two UIs) `just build-ui`.
+- Create the namespaces: `just sandbox-namespaces`.
+
+## Bring up Sandbox A (warehouse)
+Four terminals, then apply its config:
+```sh
+just run-proxy-ns          sandbox-a 8090
+just run-cloud-ns          sandbox-a 8091
+just run-dummy-edge-sandbox-a
+just run-ui-ns             sandbox-a 3000
+just sandbox-apply         sandbox-a 8091      # clears the seed device, imports catalog, applies sorter-07
+```
+
+## Bring up Sandbox B (smart-grid)
+Four more terminals (offset ports), then apply:
+```sh
+just run-proxy-ns          sandbox-b 8190
+just run-cloud-ns          sandbox-b 8191
+just run-dummy-edge-sandbox-b
+just run-ui-ns             sandbox-b 3001
+just sandbox-apply         sandbox-b 8191      # imports catalog, applies meter-gw-12
+```
+
+## What to look at
+Open both consoles side by side — **<http://localhost:3000>** (A) and **<http://localhost:3001>** (B):
+
+- **Config tab** — two completely different catalogs and devices. A: `DIVERT_COMMAND`/`SCAN_EVENT`
+  on the `raw` codec, `sorter-07` with `STX`/`ETX` framing + a 10s heartbeat. B: `SETPOINT_UPDATE`/
+  `METER_READING` on the `xml` codec, `meter-gw-12` with `<start>`/`end` framing + a 30s heartbeat.
+- **Console → Persistent connections** — each device shows **UP** (CLIENT), heartbeating at its own
+  cadence. Kill a `run-dummy-edge-sandbox-*` terminal and watch that one flip **DOWN**; restart it
+  and it reconnects.
+- **Console → Recent traffic** — `SCAN_EVENT` activities tick over in A, `METER_READING` in B, as
+  each device emits its telemetry over the live socket.
+- **The actual payloads** (verbatim CSV vs XML) on each cloud:
+  ```sh
+  curl -s localhost:8091/demo/confirms | jq .   # A: "SCAN,PKG-44821,LANE-3,..."
+  curl -s localhost:8191/demo/confirms | jq .   # B: "<reading><meter>M-9001</meter>...</reading>"
+  ```
+
+## Notes
+- **Heartbeat ≠ telemetry**: the heartbeat ping (10s / 30s) keeps the link alive; the telemetry emit
+  (8s / 12s) is the device pushing business data. They're independent knobs.
+- **Same id ⇒ one workflow**: each device emits a fixed payload, so B's `METER_READING` (business id
+  from the `<meter>` element) dedupes to a single `DeliverToCloud` — exactly-once in action. Vary the
+  payload to see new executions.
+- **Delimiter vs payload collisions**: `end` is a plain word, so a payload containing `end` would
+  frame early — fine for these demo payloads, but a real deployment would pick a sentinel that can't
+  occur in the body (this is the kind of thing the operator tunes per client, in config).
+- **Teardown**: Ctrl-C the eight terminals. Namespaces persist; re-running is idempotent.

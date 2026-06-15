@@ -73,3 +73,43 @@ edge:
   persistent:
     enabled: true
     listen-port: 9100
+
+---
+# Sandbox A — warehouse sortation device: CSV telemetry, STX/ETX framing, persistent socket.
+# One binary, config-only. Pair with config/sandbox-a-*.json on namespace sandbox-a.
+# (just run-dummy-edge-sandbox-a)
+spring:
+  config:
+    activate:
+      on-profile: sandbox-a
+edge:
+  tcp:
+    start-delimiter: "\x02"   # STX
+    end-delimiter: "\x03"     # ETX
+  persistent:
+    enabled: true
+    listen-port: 9100
+    emit-payload: "SCAN,PKG-44821,LANE-3,2026-06-15T14:03:22"
+    emit-interval-sec: 8
+
+---
+# Sandbox B — utility smart-grid gateway: XML telemetry, <start>/end framing, persistent socket.
+# Same binary, totally different client. Offset ports so it sits next to Sandbox A.
+# Pair with config/sandbox-b-*.json on namespace sandbox-b. (just run-dummy-edge-sandbox-b)
+spring:
+  config:
+    activate:
+      on-profile: sandbox-b
+server:
+  port: 8192
+edge:
+  tcp-listen-port: 9201
+  ftp-listen-port: 2322
+  tcp:
+    start-delimiter: "<start>"
+    end-delimiter: "end"
+  persistent:
+    enabled: true
+    listen-port: 9300
+    emit-payload: "<reading><meter>M-9001</meter><kwh>42.5</kwh></reading>"
+    emit-interval-sec: 12

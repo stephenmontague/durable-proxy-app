@@ -1,0 +1,23 @@
+[
+  {
+    "deviceId": "sorter-07",
+    "host": "127.0.0.1",
+    "bindings": [
+      { "messageType": "DIVERT_COMMAND", "transport": "TCP", "channel": { "kind": "PORT", "value": "9100" } }
+    ],
+    "tcpProtocol": { "startDelimiter": "<STX>", "endDelimiter": "<ETX>", "expectedAck": "ACK" },
+    "tcpSession": {
+      "mode": "PERSISTENT",
+      "role": "CLIENT",
+      "port": 9100,
+      "heartbeat": {
+        "sendIntervalSec": 10,
+        "sendPayload": "PING",
+        "expectReply": "PONG",
+        "replyTimeoutMs": 5000,
+        "missThreshold": 3
+      },
+      "inboundType": "SCAN_EVENT"
+    }
+  }
+]

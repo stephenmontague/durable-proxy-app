@@ -104,6 +104,49 @@ run-dummy-edge-xml:
 run-dummy-edge-persistent:
     mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,persistent
 
+# ---------------------------------------------------------------------------
+# Multi-sandbox demo: the SAME binaries installed twice, bent to two different clients
+# purely by config (full runbook: docs/multi-sandbox-demo.md).
+#   A = warehouse   CSV / STX-ETX / 10s   · ns sandbox-a · proxy 8090 cloud 8091 edge 8092 UI 3000
+#   B = smart-grid  XML / <start>-end / 30s · ns sandbox-b · proxy 8190 cloud 8191 edge 8192 UI 3001
+# ---------------------------------------------------------------------------
+
+# Create the two Temporal namespaces (safe to re-run; ignores "already exists")
+sandbox-namespaces:
+    -temporal operator namespace create --namespace sandbox-a --retention 24h 2>/dev/null || true
+    -temporal operator namespace create --namespace sandbox-b --retention 24h 2>/dev/null || true
+    @temporal operator namespace list | grep -E "Name:.*sandbox-[ab]" || echo "(check: namespaces sandbox-a / sandbox-b)"
+
+# Proxy for a sandbox — same jar, different namespace + port. e.g. just run-proxy-ns sandbox-a 8090
+run-proxy-ns ns port:
+    mvn -q -pl proxy spring-boot:run -Dspring-boot.run.profiles=local \
+        -Dspring-boot.run.arguments="--server.port={{port}} --spring.temporal.namespace={{ns}}"
+
+# Dummy cloud for a sandbox. e.g. just run-cloud-ns sandbox-a 8091
+run-cloud-ns ns port:
+    mvn -q -pl dummy-cloud spring-boot:run -Dspring-boot.run.profiles=local \
+        -Dspring-boot.run.arguments="--server.port={{port}} --spring.temporal.namespace={{ns}}"
+
+# Dummy edge for each sandbox (framing + telemetry baked into the Spring profile)
+run-dummy-edge-sandbox-a:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,sandbox-a
+run-dummy-edge-sandbox-b:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,sandbox-b
+
+# Management UI for a sandbox (uses `next start`, so two can run at once — run `just build-ui` first).
+# e.g. just run-ui-ns sandbox-a 3000
+run-ui-ns ns port:
+    cd management-ui && TEMPORAL_NAMESPACE={{ns}} npx next start -p {{port}}
+
+# Apply a sandbox's config to its cloud: clears the seeded device, imports the catalog, applies the
+# device. e.g. just sandbox-apply sandbox-a 8091
+sandbox-apply name cloud_port:
+    -curl -fsS -X POST localhost:{{cloud_port}}/control/remove-device/edge-gateway-01 > /dev/null 2>&1 || true
+    curl -fsS -X POST localhost:{{cloud_port}}/control/import-catalog \
+        -H 'content-type: application/json' --data-binary @config/{{name}}-catalog.json | jq -c '.state.typeDirections'
+    curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
+        -H 'content-type: application/json' --data-binary @config/{{name}}-routes.json | jq -c '[.state.devices[].deviceId]'
+
 # Run the management UI (Next.js dev server on http://localhost:3000)
 run-ui:
     @[ -d management-ui/node_modules ] || (cd management-ui && npm install)
