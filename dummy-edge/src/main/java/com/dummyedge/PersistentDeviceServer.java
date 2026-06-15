@@ -38,6 +38,8 @@ import java.util.concurrent.Executors;
 public class PersistentDeviceServer implements SmartLifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(PersistentDeviceServer.class);
+    /** Heartbeat/ack trace — its own logger so `logging.level.heartbeat` toggles it independently. */
+    private static final Logger hb = LoggerFactory.getLogger("heartbeat");
 
     private final EdgeProperties properties;
     private final ReceivedStore receivedStore;
@@ -106,7 +108,7 @@ public class PersistentDeviceServer implements SmartLifecycle {
                 }
                 if ("PING".equals(content)) {
                     writeFramed(out, writeLock, "PONG", start, end);
-                    log.info("hb  <- PING   -> PONG");
+                    hb.info("<- PING   -> PONG");
                 } else {
                     onCommand(out, writeLock, content, start, end);
                 }
@@ -121,7 +123,7 @@ public class PersistentDeviceServer implements SmartLifecycle {
         log.info("<- command: {}", content);
         receivedStore.add("SESSION", String.valueOf(properties.persistent().listenPortOrDefault()), content);
         writeFramed(out, writeLock, "ACK", start, end);
-        log.info("-> ACK"); // completes the proxy's correlated send
+        hb.info("-> ACK"); // completes the proxy's correlated send
 
         // Telemetry-emitting devices push on their own cadence (emitLoop); a device with no emit
         // configured answers a command with the paired CONFIG_ACK, like the original demo.

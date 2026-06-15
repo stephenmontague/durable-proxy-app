@@ -50,6 +50,8 @@ import java.util.function.Consumer;
 final class DeviceSession {
 
     private static final Logger log = LoggerFactory.getLogger(DeviceSession.class);
+    /** Per-beat heartbeat/ack trace — its own logger so `logging.level.heartbeat` toggles it. */
+    private static final Logger hb = LoggerFactory.getLogger("heartbeat");
     private static final int MAX_FRAME_BYTES = 10 * 1024 * 1024;
     private static final int NOISE_COMPACT_THRESHOLD = 8 * 1024;
     /** Read wakeup granularity so the loop notices {@code closed} / shutdown promptly. */
@@ -361,13 +363,13 @@ final class DeviceSession {
             if (pendingAck != null && contains(frame, frame.length, pendingAck)) {
                 ackReceived = true;
                 ackLock.notifyAll();
-                log.debug("hb {} <- ACK (send complete)", config.deviceId());
+                hb.info("{} <- ACK (send complete)", config.deviceId());
                 return;
             }
         }
         if (expectReply != null && contains(frame, frame.length, expectReply)) {
             pingOutstanding = false;
-            log.debug("hb {} <- PONG #{} (link up {})", config.deviceId(), beats, uptime());
+            hb.info("{} <- PONG #{} (link up {})", config.deviceId(), beats, uptime());
             return;
         }
         // Unsolicited device -> cloud frame: hand to the inbound sink (-> DeliverToCloud). A failed
@@ -388,7 +390,7 @@ final class DeviceSession {
         try {
             writeFrame(pingFrame);
             beats++;
-            log.debug("hb {} -> PING #{}", config.deviceId(), beats);
+            hb.info("{} -> PING #{}", config.deviceId(), beats);
             if (activeProbe) {
                 pingOutstanding = true;
                 pingDeadlineMs = nowMs() + replyTimeoutMs;

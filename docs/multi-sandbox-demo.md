@@ -56,12 +56,13 @@ Open both consoles side by side — **<http://localhost:3000>** (A) and **<http:
   and it reconnects.
 - **Console → Recent traffic** — `SCAN_EVENT` activities tick over in A, `METER_READING` in B, as
   each device emits its telemetry over the live socket.
-- **The terminals breathe** — the edge logs `hb  <- PING   -> PONG` every heartbeat (INFO), and the
-  proxy logs `hb <device> -> PING #N` / `<- PONG #N (link up …)` (the `run-proxy-ns` recipe enables
-  `com.proxyapp.session=DEBUG`). The climbing `#N` and "link up" are the live proof the socket is
-  held open, not reopened per message. (For the single-stack `demo-config-persistent`, the edge
-  terminal shows the beat at INFO; add `--logging.level.com.proxyapp.session=DEBUG` to see it
-  proxy-side too.)
+- **The terminals breathe** — both sides trace the heartbeat on a dedicated `heartbeat` logger that
+  is **off by default** (`logging.level.heartbeat: OFF` in each `application.yml`) and flipped on for
+  the demo: the proxy via the `run-proxy-ns` recipe (`--logging.level.heartbeat=INFO`), the edge via
+  its `persistent`/`sandbox-*` profiles. You'll see the edge log `<- PING   -> PONG` and the proxy
+  log `sorter-07 -> PING #N` / `<- PONG #N (link up …)` — the climbing `#N` is the live proof the
+  socket is held open, not reopened per message. To silence it anywhere, set `logging.level.heartbeat`
+  back to `OFF`; to see it on a normal `run-proxy`, pass `--logging.level.heartbeat=INFO`.
 - **The actual payloads** (verbatim CSV vs XML) on each cloud:
   ```sh
   curl -s localhost:8091/demo/confirms | jq .   # A: "SCAN,PKG-44821,LANE-3,..."

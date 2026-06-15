@@ -27,6 +27,12 @@ edge:
   # Simulated device latency before it pushes the paired confirm
   confirm-delay-ms: 300
 
+# Heartbeat/ack trace (PING/PONG, ACK) for the persistent channel — OFF by default so it never adds
+# noise. The persistent / sandbox-* profiles flip it to INFO for the demo.
+logging:
+  level:
+    heartbeat: "OFF"
+
 ---
 spring:
   config:
@@ -69,6 +75,9 @@ spring:
     activate:
       on-profile: persistent
 
+logging:
+  level:
+    heartbeat: INFO
 edge:
   persistent:
     enabled: true
@@ -82,6 +91,9 @@ spring:
   config:
     activate:
       on-profile: sandbox-a
+logging:
+  level:
+    heartbeat: INFO
 edge:
   tcp:
     start-delimiter: "\x02"   # STX
@@ -102,6 +114,9 @@ spring:
       on-profile: sandbox-b
 server:
   port: 8192
+logging:
+  level:
+    heartbeat: INFO
 edge:
   tcp-listen-port: 9201
   ftp-listen-port: 2322
