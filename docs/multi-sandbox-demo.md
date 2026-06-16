@@ -26,10 +26,16 @@ each install is isolated in its own Temporal namespace (exactly how you'd ship o
 - Build once: `just build` and (for two UIs) `just build-ui`.
 - Create the namespaces: `just sandbox-namespaces`.
 
+> **Installs boot empty.** The proxy starts with no catalog and no devices (the `empty` profile) —
+> you configure each install through its Switchyard UI, and it persists in the cloud app's H2 read
+> model **and** the control workflow (survives restarts; the UI's config reads cost no Temporal
+> Actions). `sandbox-apply` below is just a fast way to seed a sandbox's config through the same
+> control API, so you don't have to click it all in for the demo.
+
 > **Start the two UIs sequentially** (bring Sandbox A fully up before Sandbox B). Next 16's
-> `next start` only reads the namespace from `management-ui/.env.local` (not a command-line env var),
-> so `run-ui-ns` writes that file and each UI captures it at *its own* startup — overlapping starts
-> would race on the shared file.
+> `next start` reads `TEMPORAL_NAMESPACE` + `DUMMY_CLOUD_URL` only from `management-ui/.env.local`
+> (not command-line env vars), so `run-ui-ns` writes that file and each UI captures it at *its own*
+> startup — overlapping starts would race on the shared file. The third arg is the install's cloud port.
 
 ## Bring up Sandbox A (warehouse)
 Four terminals, then apply its config:
@@ -37,8 +43,8 @@ Four terminals, then apply its config:
 just run-proxy-ns          sandbox-a 8090
 just run-cloud-ns          sandbox-a 8091
 just run-dummy-edge-sandbox-a
-just run-ui-ns             sandbox-a 3000
-just sandbox-apply         sandbox-a 8091      # clears the seed device, imports catalog, applies sorter-07
+just run-ui-ns             sandbox-a 3000 8091
+just sandbox-apply         sandbox-a 8091      # quick-seed sorter-07's config (or build it in the UI — either persists in H2)
 ```
 
 ## Bring up Sandbox B (smart-grid)
@@ -47,8 +53,8 @@ Four more terminals (offset ports), then apply:
 just run-proxy-ns          sandbox-b 8190
 just run-cloud-ns          sandbox-b 8191
 just run-dummy-edge-sandbox-b
-just run-ui-ns             sandbox-b 3001
-just sandbox-apply         sandbox-b 8191      # imports catalog, applies meter-gw-12
+just run-ui-ns             sandbox-b 3001 8191
+just sandbox-apply         sandbox-b 8191      # quick-seed meter-gw-12's config (or build it in the UI)
 ```
 
 ## What to look at

@@ -32,20 +32,24 @@ public class OutboundDispatcher {
         this.properties = properties;
     }
 
+    /** Dispatch a known demo type, pulling the business id from its configured field in the body. */
     public Map<String, Object> dispatch(String messageType, JsonNode body) {
         String idField = DeviceFleetCatalog.OUTBOUND_BUSINESS_ID_FIELDS.get(messageType);
         JsonNode idNode = idField == null ? null : body.get(idField);
         if (idNode == null || idNode.asText().isBlank()) {
             throw new IllegalArgumentException("payload must carry '" + idField + "'");
         }
-        CanonicalMessage message =
-                new CanonicalMessage(messageType, idNode.asText(), body.toString());
-        String workflowId = message.activityId();
+        return dispatch(new CanonicalMessage(messageType, idNode.asText(), body.toString()));
+    }
 
-        // Reuse REJECT_DUPLICATE blocks re-dispatch after completion; the default conflict
-        // policy (FAIL) makes a concurrent duplicate throw too — both surface as
-        // WorkflowExecutionAlreadyStarted so we can report duplicate=true. Either way
-        // exactly one execution ever runs.
+    /**
+     * Dispatch any catalog type: start its {@code DeliverToEdge} workflow. The payload is whatever
+     * the type's codec expects (CSV / XML / JSON) — the proxy encodes it on the way out.
+     * Workflow ID = {type}-{businessId} with REJECT_DUPLICATE gives exactly-once dispatch; a
+     * concurrent or post-completion duplicate surfaces as WorkflowExecutionAlreadyStarted.
+     */
+    public Map<String, Object> dispatch(CanonicalMessage message) {
+        String workflowId = message.activityId();
         WorkflowOptions options = WorkflowOptions.newBuilder()
                 .setWorkflowId(workflowId)
                 .setTaskQueue(properties.proxy().taskQueue())
