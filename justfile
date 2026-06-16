@@ -129,7 +129,7 @@ run-proxy-ns ns port:
 # one leaves the cloud on the `default` namespace and every /control/* call 500s (WorkflowNotFound).
 run-cloud-ns ns port:
     mvn -q -pl dummy-cloud spring-boot:run -Dspring-boot.run.profiles=local \
-        -Dspring-boot.run.arguments="--server.port={{port}} --cloud.temporal.namespace={{ns}}"
+        -Dspring-boot.run.arguments="--server.port={{port}} --cloud.temporal.namespace={{ns}} --spring.datasource.url=jdbc:h2:file:./data/cloud-{{ns}}"
 
 # Dummy edge for each sandbox (framing + telemetry baked into the Spring profile)
 run-dummy-edge-sandbox-a:
@@ -143,8 +143,8 @@ run-dummy-edge-sandbox-b:
 # to its server worker — only `.env*` files reach it. So we write the namespace into .env.local, which
 # each `next start` reads at its own startup. Bring sandboxes up SEQUENTIALLY (A fully, then B): each
 # worker captures .env.local when it boots, so the shared file is fine for the documented flow.
-run-ui-ns ns port:
-    cd management-ui && printf 'TEMPORAL_NAMESPACE=%s\n' {{ns}} > .env.local && exec npx next start -p {{port}}
+run-ui-ns ns port cloud_port:
+    cd management-ui && printf 'TEMPORAL_NAMESPACE=%s\nDUMMY_CLOUD_URL=http://localhost:%s\n' {{ns}} {{cloud_port}} > .env.local && exec npx next start -p {{port}}
 
 # Apply a sandbox's config to its cloud: clears the seeded device, imports the catalog, applies the
 # device. e.g. just sandbox-apply sandbox-a 8091

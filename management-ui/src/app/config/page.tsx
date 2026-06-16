@@ -11,13 +11,15 @@ import type { ControlStateResponse } from "@/lib/types";
  * state, polled once here and shared by both panels.
  */
 export default function ConfigPage() {
-  const control = usePoll<ControlStateResponse>("/api/control/state", 3000);
+  // Config (catalog + devices) is served from the cloud's H2 read model — cheap (no Temporal Query)
+  // and persistent. Writes still signal the control workflow first (the source of truth).
+  const control = usePoll<ControlStateResponse>("/api/control/config", 3000);
   const state = control.data?.state;
 
   if (!state) {
     return (
       <p className="readout py-10 text-center text-[12px] text-ink-faint">
-        {control.error ? `cannot reach Temporal: ${control.error}` : "loading control state…"}
+        {control.error ? `cannot load config: ${control.error}` : "loading config…"}
       </p>
     );
   }

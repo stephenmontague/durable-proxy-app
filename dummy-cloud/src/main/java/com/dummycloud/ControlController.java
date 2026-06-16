@@ -1,9 +1,8 @@
 package com.dummycloud;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import io.temporal.client.WorkflowClient;
-import io.temporal.client.WorkflowStub;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -11,74 +10,70 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 /**
- * Control-plane drivers: remote on/off + hot config, signalled through Temporal Cloud.
- * This is the contract the Part 2 management UI will use — the cloud never talks to the
- * proxy directly.
+ * Control-plane front door for the management UI. Every change is a Signal to the proxy's control
+ * workflow (Temporal — the source of truth); on an accepted change the new config is persisted to
+ * the H2 read model, and {@code GET /control/state} serves that read model so the UI hydrates
+ * without a Temporal Query. The cloud never talks to the proxy directly.
+ *
+ * <p>Lifecycle signals (requestRestart/requestShutdown) are NOT here — they don't change config, so
+ * the UI fires them straight at the workflow and reads live status from Temporal.
  */
 @RestController
 public class ControlController {
 
-    private final WorkflowClient workflowClient;
-    private final CloudProperties properties;
+    private final ConfigStateService configState;
 
-    public ControlController(WorkflowClient workflowClient, CloudProperties properties) {
-        this.workflowClient = workflowClient;
-        this.properties = properties;
-    }
-
-    private WorkflowStub controlStub() {
-        return workflowClient.newUntypedWorkflowStub(properties.proxy().controlWorkflowId());
+    public ControlController(ConfigStateService configState) {
+        this.configState = configState;
     }
 
     @PostMapping("/control/enable")
     public Map<String, Object> enable() {
-        controlStub().signal("enable");
-        return state();
+        return configState.applyChange("enable", null);
     }
 
     @PostMapping("/control/disable")
     public Map<String, Object> disable() {
-        controlStub().signal("disable");
-        return state();
+        return configState.applyChange("disable", null);
     }
 
-    /** Body: JSON array of EdgeConfig, same shape the proxy's seed file uses. */
+    /** Body: JSON array of EdgeConfig (full device-list replace). */
     @PostMapping("/control/apply-config")
     public Map<String, Object> applyConfig(@RequestBody JsonNode devices) {
-        controlStub().signal("applyConfig", devices);
-        return state();
+        return configState.applyChange("applyConfig", devices);
+    }
+
+    /** Body: a single EdgeConfig (add or replace one device). */
+    @PostMapping("/control/upsert-device")
+    public Map<String, Object> upsertDevice(@RequestBody JsonNode device) {
+        return configState.applyChange("upsertDevice", device);
     }
 
     @PostMapping("/control/remove-device/{deviceId}")
-    public Map<String, Object> removeDevice(@org.springframework.web.bind.annotation.PathVariable String deviceId) {
-        controlStub().signal("removeDevice", deviceId);
-        return state();
+    public Map<String, Object> removeDevice(@PathVariable String deviceId) {
+        return configState.applyChange("removeDevice", deviceId);
     }
 
-    /** Body: JSON array of CatalogEntryDto — replaces the whole message catalog (Part 3). */
+    /** Body: JSON array of CatalogEntryDto — replaces the whole message catalog. */
     @PostMapping("/control/import-catalog")
     public Map<String, Object> importCatalog(@RequestBody JsonNode entries) {
-        controlStub().signal("importCatalog", entries);
-        return state();
+        return configState.applyChange("importCatalog", entries);
     }
 
     /** Body: a single CatalogEntryDto — adds or replaces one message type. */
     @PostMapping("/control/upsert-message-type")
     public Map<String, Object> upsertMessageType(@RequestBody JsonNode entry) {
-        controlStub().signal("upsertMessageType", entry);
-        return state();
+        return configState.applyChange("upsertMessageType", entry);
     }
 
     @PostMapping("/control/remove-message-type/{type}")
-    public Map<String, Object> removeMessageType(
-            @org.springframework.web.bind.annotation.PathVariable String type) {
-        controlStub().signal("removeMessageType", type);
-        return state();
+    public Map<String, Object> removeMessageType(@PathVariable String type) {
+        return configState.applyChange("removeMessageType", type);
     }
 
+    /** Desired config from the H2 read model — no Temporal Query. */
     @GetMapping("/control/state")
     public Map<String, Object> state() {
-        JsonNode state = controlStub().query("getState", JsonNode.class);
-        return Map.of("state", state);
+        return Map.of("state", configState.readState());
     }
 }

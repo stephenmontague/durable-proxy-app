@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { awaitConfigOutcome, postSignal } from "@/lib/actions";
+import { postSignal } from "@/lib/actions";
 import { DEVICE_FLEET_CATALOG } from "@/lib/starter-catalog";
 import type { CatalogEntryDto, ProxyControlState } from "@/lib/types";
 
@@ -37,9 +37,7 @@ export function MessageTypesPanel({
   const importProfile = async () => {
     setBusy(true);
     try {
-      const prevVersion = state.version;
-      await postSignal("import-catalog", DEVICE_FLEET_CATALOG);
-      const outcome = await awaitConfigOutcome(prevVersion);
+      const outcome = await postSignal("import-catalog", DEVICE_FLEET_CATALOG);
       if (outcome.accepted) {
         toast.success("Starter profile imported", {
           description: `${DEVICE_FLEET_CATALOG.length} message types are now editable here.`,
@@ -58,9 +56,7 @@ export function MessageTypesPanel({
   const removeType = async (typeName: string) => {
     setBusy(true);
     try {
-      const prevVersion = state.version;
-      await postSignal("remove-message-type", typeName);
-      const outcome = await awaitConfigOutcome(prevVersion);
+      const outcome = await postSignal("remove-message-type", typeName);
       if (outcome.accepted) {
         toast.success(`Message type "${typeName}" removed`);
       } else {

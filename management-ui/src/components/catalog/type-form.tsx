@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { awaitConfigOutcome, postSignal } from "@/lib/actions";
+import { postSignal } from "@/lib/actions";
 import { CODECS, type CatalogEntryDto, type CodecName, type Direction, type ProxyControlState } from "@/lib/types";
 import { validateCatalogEntry } from "@/lib/validate";
 
@@ -103,7 +103,6 @@ export function TypeForm({
   const apply = async () => {
     setApplying(true);
     try {
-      const prevVersion = state.version;
       const entry: CatalogEntryDto = {
         type: draft.type.trim(),
         direction: draft.direction,
@@ -113,8 +112,7 @@ export function TypeForm({
         // Only meaningful for inbound dedup; force off for CLOUD_TO_EDGE so it can't silently linger.
         allowDuplicates: edgeToCloud ? (draft.allowDuplicates ?? false) : false,
       };
-      await postSignal("upsert-message-type", entry);
-      const outcome = await awaitConfigOutcome(prevVersion);
+      const outcome = await postSignal("upsert-message-type", entry);
       if (outcome.accepted) {
         toast.success(`Message type "${entry.type}" saved`, {
           description: "The proxy rebuilds its catalog on the next reconcile.",

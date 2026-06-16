@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { awaitConfigOutcome, postSignal } from "@/lib/actions";
+import { postSignal } from "@/lib/actions";
 import type { EdgeConfig, ProxyControlState } from "@/lib/types";
 import { validateConfig } from "@/lib/validate";
 
@@ -53,9 +53,7 @@ export function JsonEditorDialog({
     if (!parsed) return;
     setApplying(true);
     try {
-      const prevVersion = state.version;
-      await postSignal("apply-config", parsed);
-      const outcome = await awaitConfigOutcome(prevVersion);
+      const outcome = await postSignal("apply-config", parsed);
       if (outcome.accepted) {
         toast.success("Full config applied", { description: outcome.message });
         onApplied();

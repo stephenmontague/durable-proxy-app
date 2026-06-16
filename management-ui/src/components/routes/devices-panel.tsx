@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { awaitConfigOutcome, postSignal } from "@/lib/actions";
+import { postSignal } from "@/lib/actions";
 import type { EdgeConfig, ProxyControlState } from "@/lib/types";
 
 /**
@@ -37,9 +37,7 @@ export function DevicesPanel({
   const removeDevice = async (deviceId: string) => {
     setRemoveBusy(true);
     try {
-      const prevVersion = state.version;
-      await postSignal("remove-device", deviceId);
-      const outcome = await awaitConfigOutcome(prevVersion);
+      const outcome = await postSignal("remove-device", deviceId);
       if (outcome.accepted) {
         toast.success(`Device "${deviceId}" removed`);
       } else {

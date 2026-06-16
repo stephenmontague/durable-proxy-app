@@ -27,7 +27,7 @@ import { TypeForm } from "@/components/catalog/type-form";
 import { ConnectionFields } from "@/components/routes/connection-fields";
 import { CustomBindingsEditor, type AvailableType } from "@/components/routes/custom-bindings";
 import { WireProtocolFields } from "@/components/routes/wire-protocol-fields";
-import { awaitConfigOutcome, postSignal } from "@/lib/actions";
+import { postSignal } from "@/lib/actions";
 import { matchPreset, summarizeProtocol, TCP_PRESETS } from "@/lib/tcp-presets";
 import { DEVICE_TEMPLATES, materialize, type DeviceTemplateDef, type SiteValues } from "@/lib/templates";
 import type { EdgeConfig, ProxyControlState, RouteBinding, TcpProtocol, TcpSession } from "@/lib/types";
@@ -205,9 +205,7 @@ export function DeviceWizard({
     if (!draft) return;
     setApplying(true);
     try {
-      const prevVersion = state.version;
-      await postSignal("upsert-device", draft);
-      const outcome = await awaitConfigOutcome(prevVersion);
+      const outcome = await postSignal("upsert-device", draft);
       if (outcome.accepted) {
         toast.success(`Device "${draft.deviceId}" applied`, {
           description: "The proxy reconciles within a couple of seconds — watch Applied Listeners.",

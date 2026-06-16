@@ -11,7 +11,9 @@ import { usePoll } from "@/hooks/use-poll";
 import type { ControlStateResponse, FeedItem } from "@/lib/types";
 
 export default function ConsolePage() {
-  const control = usePoll<ControlStateResponse>("/api/control/state", 2500);
+  // Live proxy status (applied state + liveness) from Temporal. Slower cadence keeps the per-poll
+  // getState Query (a billable Action) modest; config editing lives on the Config tab (H2-backed).
+  const control = usePoll<ControlStateResponse>("/api/control/state", 5000);
   const feed = usePoll<{ items: FeedItem[] }>("/api/temporal/feed", 4000);
   const cloud = usePoll<{ confirms: unknown[] }>("/api/demo/confirms", 10000);
 
