@@ -13,17 +13,22 @@ spring:
     namespace: default
     workers-auto-discovery:
       packages:
-        - com.proxyapp.temporal
-        - com.proxyapp.control
+        - com.proxyapp.temporal   # all @WorkflowImpl/@ActivityImpl live here (incl. the control workflow)
 
 # 8090-8092 keep clear of the local Docker Temporal UI (8080) and other dev stacks
 server:
   port: 8090
 
+# Per-beat heartbeat/ack trace for persistent TCP sessions — OFF by default so it never adds
+# noise. Set to INFO (here, an env var, or --logging.level.heartbeat=INFO) to watch the link breathe.
+logging:
+  level:
+    heartbeat: "OFF"
+
 proxy:
   task-queue: proxy-main            # data path: DeliverToEdge / DeliverToCloud activities
   control-task-queue: proxy-control # control workflow; stays polling during soft-disable
-  profile: device-fleet             # which message catalog/profile to load
+  profile: empty                    # fresh install boots with no catalog; operator configures via the UI
   cloud:
     base-url: http://localhost:8091
   ingress:
@@ -33,7 +38,7 @@ proxy:
     ftp-user: edge
     ftp-password: edge
   seed:
-    devices-resource: classpath:seed/device-fleet-devices.json
+    devices-resource: ""            # no seed devices; empty install (set device-fleet + a resource for the legacy demo)
 
 ---
 spring:

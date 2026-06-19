@@ -20,21 +20,26 @@ export const metadata: Metadata = {
   description: "Operations console for the Temporal-backed cloud↔edge proxy",
 };
 
-const TEMPORAL_ADDRESS = process.env.TEMPORAL_ADDRESS ?? "localhost:7233";
-const TEMPORAL_NAMESPACE = process.env.TEMPORAL_NAMESPACE ?? "default";
+// Render at request time, not build time: otherwise `next build` bakes the namespace (it has no
+// env then → "default") into the static shell, and every `next start` shows "default" regardless
+// of the per-install env. Next 16 only surfaces TEMPORAL_NAMESPACE to the server worker via a
+// .env file (see the run-ui-ns recipe), and force-dynamic makes this read it at runtime.
+export const dynamic = "force-dynamic";
 
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const temporalAddress = process.env.TEMPORAL_ADDRESS ?? "localhost:7233";
+  const temporalNamespace = process.env.TEMPORAL_NAMESPACE ?? "default";
   return (
     <html
       lang="en"
       className={`${display.variable} ${plexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <Header address={TEMPORAL_ADDRESS} namespace={TEMPORAL_NAMESPACE} />
+        <Header address={temporalAddress} namespace={temporalNamespace} />
         <main className="mx-auto w-full max-w-6xl flex-1 px-6 pb-16 pt-10">
           {children}
         </main>
@@ -44,7 +49,7 @@ export default function RootLayout({
               Switchyard · every command rides the egress gRPC channel — no inbound ports
             </span>
             <span className="readout text-[10px] text-ink-faint">
-              {TEMPORAL_ADDRESS} · ns/{TEMPORAL_NAMESPACE}
+              {temporalAddress} · ns/{temporalNamespace}
             </span>
           </div>
         </footer>

@@ -1,6 +1,6 @@
 package com.proxyapp.ingress;
 
-import com.proxyapp.routing.TcpProtocol;
+import com.proxyapp.routing.model.TcpProtocol;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

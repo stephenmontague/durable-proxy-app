@@ -99,6 +99,62 @@ run-dummy-edge-framed:
 run-dummy-edge-xml:
     mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,xml
 
+# Run the dummy edge as a persistent-session device (listens on 9100; the proxy dials in and
+# keeps the socket warm with PING/PONG heartbeats). Pair with: just demo-config-persistent
+run-dummy-edge-persistent:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,persistent
+
+# ---------------------------------------------------------------------------
+# Multi-sandbox demo: the SAME binaries installed twice, bent to two different clients
+# purely by config (full runbook: docs/multi-sandbox-demo.md).
+#   A = warehouse   CSV / STX-ETX / 10s   · ns sandbox-a · proxy 8090 cloud 8091 edge 8092 UI 3000
+#   B = smart-grid  XML / <start>-end / 30s · ns sandbox-b · proxy 8190 cloud 8191 edge 8192 UI 3001
+# ---------------------------------------------------------------------------
+
+# Create the two Temporal namespaces (safe to re-run; ignores "already exists")
+sandbox-namespaces:
+    -temporal operator namespace create --namespace sandbox-a --retention 24h 2>/dev/null || true
+    -temporal operator namespace create --namespace sandbox-b --retention 24h 2>/dev/null || true
+    @temporal operator namespace list | grep -E "Name:.*sandbox-[ab]" || echo "(check: namespaces sandbox-a / sandbox-b)"
+
+# Proxy for a sandbox — same jar, different namespace + port. Flips on the heartbeat trace
+# (logging.level.heartbeat=INFO) so the terminal shows the link breathing. e.g. just run-proxy-ns sandbox-a 8090
+run-proxy-ns ns port:
+    mvn -q -pl proxy spring-boot:run -Dspring-boot.run.profiles=local \
+        -Dspring-boot.run.arguments="--server.port={{port}} --spring.temporal.namespace={{ns}} --logging.level.heartbeat=INFO"
+
+# Dummy cloud for a sandbox. e.g. just run-cloud-ns sandbox-a 8091
+# NOTE: dummy-cloud has its own Temporal client (not the Spring starter), so its namespace key is
+# `cloud.temporal.namespace` — NOT `spring.temporal.namespace` (that's the proxy's). Using the wrong
+# one leaves the cloud on the `default` namespace and every /control/* call 500s (WorkflowNotFound).
+run-cloud-ns ns port:
+    mvn -q -pl dummy-cloud spring-boot:run -Dspring-boot.run.profiles=local \
+        -Dspring-boot.run.arguments="--server.port={{port}} --cloud.temporal.namespace={{ns}} --spring.datasource.url=jdbc:h2:file:./data/cloud-{{ns}}"
+
+# Dummy edge for each sandbox (framing + telemetry baked into the Spring profile)
+run-dummy-edge-sandbox-a:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,sandbox-a
+run-dummy-edge-sandbox-b:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,sandbox-b
+
+# Management UI for a sandbox (uses `next start`, so two can run at once — run `just build-ui` first).
+# e.g. just run-ui-ns sandbox-a 3000
+# NOTE: Next 16's `next start` does NOT forward command-line env vars (TEMPORAL_NAMESPACE=... npx ...)
+# to its server worker — only `.env*` files reach it. So we write the namespace into .env.local, which
+# each `next start` reads at its own startup. Bring sandboxes up SEQUENTIALLY (A fully, then B): each
+# worker captures .env.local when it boots, so the shared file is fine for the documented flow.
+run-ui-ns ns port cloud_port:
+    cd management-ui && printf 'TEMPORAL_NAMESPACE=%s\nDUMMY_CLOUD_URL=http://localhost:%s\n' {{ns}} {{cloud_port}} > .env.local && exec npx next start -p {{port}}
+
+# Apply a sandbox's config to its cloud: clears the seeded device, imports the catalog, applies the
+# device. e.g. just sandbox-apply sandbox-a 8091
+sandbox-apply name cloud_port:
+    -curl -fsS -X POST localhost:{{cloud_port}}/control/remove-device/edge-gateway-01 > /dev/null 2>&1 || true
+    curl -fsS -X POST localhost:{{cloud_port}}/control/import-catalog \
+        -H 'content-type: application/json' --data-binary @config/{{name}}-catalog.json | jq -c '.state.typeDirections'
+    curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
+        -H 'content-type: application/json' --data-binary @config/{{name}}-routes.json | jq -c '[.state.devices[].deviceId]'
+
 # Run the management UI (Next.js dev server on http://localhost:3000)
 run-ui:
     @[ -d management-ui/node_modules ] || (cd management-ui && npm install)
@@ -175,6 +231,24 @@ demo-config-tcp-framed:
     @sleep 3
     @echo ">> Check dummy-cloud received the CONFIG_ACK (pushed back as a framed message):"
     curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CFG-FRAMED")]'
+
+# Persistent TCP session: the proxy keeps a heartbeated socket to the device (no connect-per-message).
+# A CONFIG_UPDATE rides the live socket; the device pushes CONFIG_ACK back over the SAME socket.
+# Requires the device on the persistent profile: just run-dummy-edge-persistent
+demo-config-persistent:
+    @echo ">> Applying persistent-session config (proxy dials the device; heartbeats start) ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
+        -H 'content-type: application/json' \
+        --data-binary @config/persistent-routes.json | jq -c '.state.devices[0].tcpSession'
+    @echo ">> Watch the Switchyard console — edge-gateway-01 turns UP in 'Persistent connections'."
+    @sleep 4
+    @echo ">> Triggering CONFIG_UPDATE (delivered over the already-open socket) ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/demo/config \
+        -H 'content-type: application/json' \
+        -d '{"configId":"CFG-SESSION","key":"mode","value":"safe"}' | jq .
+    @sleep 3
+    @echo ">> Cloud received the CONFIG_ACK (pushed back over the same persistent socket):"
+    curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CFG-SESSION")]'
 
 # Add a CUSTOM message type to the live catalog (Part 3) — no code change, no restart.
 # Defines a type outside the starter profile with the xml codec; it shows up in typeDirections immediately.

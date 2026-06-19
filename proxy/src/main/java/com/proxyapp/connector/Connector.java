@@ -1,6 +1,7 @@
 package com.proxyapp.connector;
+import com.proxyapp.connector.model.ChannelTarget;
 
-import com.proxyapp.routing.Transport;
+import com.proxyapp.routing.model.Transport;
 
 /**
  * Outbound transport SPI. Sends run inside Temporal activities: they are retried

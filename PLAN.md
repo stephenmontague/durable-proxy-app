@@ -166,7 +166,7 @@ spring:
         cert-chain-file: ${TEMPORAL_CERT_FILE}
     namespace: ${TEMPORAL_NAMESPACE} # <tenant>.<account-id>
     workers-auto-discovery:
-      packages: [com.proxyapp.temporal, com.proxyapp.control]
+      packages: [com.proxyapp.temporal]
 proxy:
   task-queue: proxy-main
   profile: device-fleet # which message catalog/profile to load
@@ -533,10 +533,13 @@ the two in lockstep (like the WireString tests).
 
 ## Later — Hardening & Rollout (not started)
 
-- **Persistent TCP sessions + heartbeats:** a per-device persistent-session mode — maintained
-  connection (proxy-as-client or proxy-as-server), configurable bidirectional heartbeats, and a
-  multi-device connection table in the UI — with Temporal still doing durable delivery on top.
-  Design: [docs/persistent-tcp-sessions.md](docs/persistent-tcp-sessions.md).
+- **Persistent TCP sessions + heartbeats** *(shipped)*: a per-device persistent-session mode —
+  maintained connection (proxy-as-client or proxy-as-server), configurable bidirectional heartbeats,
+  correlated sends, unsolicited inbound → `DeliverToCloud`, and a multi-device connection table in
+  the UI — with Temporal still doing durable delivery on top.
+  Design + internals: [docs/persistent-tcp-sessions.md](docs/persistent-tcp-sessions.md); demo:
+  `just run-dummy-edge-persistent` + `just demo-config-persistent`. CLIENT + SERVER roles, shared
+  listen ports with handshake demux, and single- or resolver-typed inbound are all wired.
 - **More transports / framing:** SFTP; HTTP auth schemes; additional TCP framings beyond the
   configurable start/stop delimiters already shipped.
 - **More codecs:** fixed-width and delimited (CSV) behind `MessageCodec`, per-(edge,type) selection.

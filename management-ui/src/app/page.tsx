@@ -1,6 +1,7 @@
 "use client";
 
 import { FlowDiagram } from "@/components/flow-diagram";
+import { ConnectionsPanel } from "@/components/dashboard/connections-panel";
 import { ControlsPanel } from "@/components/dashboard/controls-panel";
 import { ListenersPanel } from "@/components/dashboard/listeners-panel";
 import { StatusPanel } from "@/components/dashboard/status-panel";
@@ -10,7 +11,9 @@ import { usePoll } from "@/hooks/use-poll";
 import type { ControlStateResponse, FeedItem } from "@/lib/types";
 
 export default function ConsolePage() {
-  const control = usePoll<ControlStateResponse>("/api/control/state", 2500);
+  // Live proxy status (applied state + liveness) from Temporal. Slower cadence keeps the per-poll
+  // getState Query (a billable Action) modest; config editing lives on the Config tab (H2-backed).
+  const control = usePoll<ControlStateResponse>("/api/control/state", 5000);
   const feed = usePoll<{ items: FeedItem[] }>("/api/temporal/feed", 4000);
   const cloud = usePoll<{ confirms: unknown[] }>("/api/demo/confirms", 10000);
 
@@ -44,6 +47,10 @@ export default function ConsolePage() {
         {state && <ControlsPanel state={state} onActed={control.refresh} />}
         {state && <ListenersPanel state={state} />}
       </div>
+
+      {state?.applied?.sessions && state.applied.sessions.length > 0 && (
+        <ConnectionsPanel sessions={state.applied.sessions} />
+      )}
 
       <Panel legend="Recent traffic">
         <FeedTable items={(feed.data?.items ?? []).slice(0, 8)} compact />

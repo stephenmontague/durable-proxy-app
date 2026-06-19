@@ -1,4 +1,11 @@
-import type { CatalogEntryDto, Direction, EdgeConfig, RouteBinding, TcpProtocol } from "@/lib/types";
+import type {
+  CatalogEntryDto,
+  Direction,
+  EdgeConfig,
+  RouteBinding,
+  TcpProtocol,
+  TcpSession,
+} from "@/lib/types";
 import { validateWireString } from "@/lib/wire-string";
 
 // Mirrors com.proxyapp.routing.ConfigValidator so the wizard can reject a bad config
@@ -33,11 +40,53 @@ export function validateConfig(
     if (device.tcpProtocol != null) {
       validateTcpProtocol(`${device.deviceId}: device tcpProtocol`, device.tcpProtocol, errors);
     }
+    if (device.tcpSession != null) {
+      validateTcpSession(
+        `${device.deviceId}: tcpSession`,
+        device,
+        device.tcpSession,
+        typeDirections,
+        errors,
+      );
+    }
     for (const binding of device.bindings) {
       validateBinding(typeDirections, pool, inboundChannelOwners, device, binding, errors);
     }
   }
+  validateServerPorts(devices, errors);
   return errors;
+}
+
+// Mirrors ConfigValidator.validateServerPorts: persistent SERVER devices may share a listen port,
+// but only with a distinct, non-blank handshakeId each so the proxy can tell them apart on connect.
+function validateServerPorts(devices: EdgeConfig[], errors: string[]): void {
+  const byPort = new Map<number, EdgeConfig[]>();
+  for (const device of devices) {
+    const s = device.tcpSession;
+    if (s != null && s.mode === "PERSISTENT" && s.role === "SERVER" && s.listenPort != null) {
+      const group = byPort.get(s.listenPort) ?? [];
+      group.push(device);
+      byPort.set(s.listenPort, group);
+    }
+  }
+  for (const [port, group] of byPort) {
+    if (group.length < 2) continue; // a dedicated port needs no handshake
+    const seen = new Set<string>();
+    for (const device of group) {
+      const handshakeId = device.tcpSession?.handshakeId;
+      if (handshakeId == null || handshakeId.trim() === "") {
+        errors.push(
+          `${device.deviceId}: tcpSession: SERVER listen port ${port} is shared, so a handshakeId is required`,
+        );
+      } else if (seen.has(handshakeId)) {
+        errors.push(
+          `${device.deviceId}: tcpSession: duplicate handshakeId '${handshakeId}' on shared SERVER listen port ${port}`,
+        );
+      } else {
+        seen.add(handshakeId);
+      }
+    }
+  }
 }
 
 function validateBinding(
@@ -156,6 +205,100 @@ function checkWireField(
   const error = validateWireString(value);
   if (error != null) {
     errors.push(`${prefix}.${field}: ${error}`);
+  }
+}
+
+// Persistent-session rules — mirrors ConfigValidator.validateTcpSession verbatim. Applied only
+// in PERSISTENT mode; error text must match the Java side character-for-character.
+function validateTcpSession(
+  prefix: string,
+  device: EdgeConfig,
+  s: TcpSession,
+  typeDirections: Record<string, Direction>,
+  errors: string[],
+): void {
+  if (s.mode !== "PERSISTENT") return;
+  if (s.role == null) {
+    errors.push(`${prefix}: PERSISTENT session requires a role (CLIENT or SERVER)`);
+  } else if (s.role === "CLIENT") {
+    if (!device.host || device.host.trim() === "") {
+      errors.push(`${prefix}: CLIENT role requires the device host`);
+    }
+    if (s.port == null) {
+      errors.push(`${prefix}: CLIENT role requires a port`);
+    } else if (s.port < 1 || s.port > 65535) {
+      errors.push(`${prefix}.port must be between 1 and 65535`);
+    }
+  } else {
+    // SERVER always needs a port to listen on; handshakeId only disambiguates a shared port
+    // (checked across devices in validateServerPorts).
+    if (s.listenPort == null) {
+      errors.push(`${prefix}: SERVER role requires a listenPort`);
+    } else if (s.listenPort < 1 || s.listenPort > 65535) {
+      errors.push(`${prefix}.listenPort must be between 1 and 65535`);
+    }
+  }
+
+  const hb = s.heartbeat;
+  const hasPing = hb != null && hb.sendIntervalSec != null;
+  const hasWatchdog = hb != null && hb.expectInboundSec != null;
+  if (!hasPing && !hasWatchdog) {
+    errors.push(
+      `${prefix}: PERSISTENT session requires at least one liveness mechanism (heartbeat.sendIntervalSec or heartbeat.expectInboundSec)`,
+    );
+  }
+  if (hb != null) {
+    const hbPrefix = `${prefix}.heartbeat`;
+    checkWireField(hbPrefix, "sendPayload", hb.sendPayload, errors);
+    checkWireField(hbPrefix, "expectReply", hb.expectReply, errors);
+    checkPositive(hbPrefix, "sendIntervalSec", hb.sendIntervalSec, errors);
+    checkPositive(hbPrefix, "replyTimeoutMs", hb.replyTimeoutMs, errors);
+    checkPositive(hbPrefix, "expectInboundSec", hb.expectInboundSec, errors);
+    checkPositive(hbPrefix, "missThreshold", hb.missThreshold, errors);
+    if (hasPing && hb.sendPayload == null) {
+      errors.push(`${hbPrefix}: sendIntervalSec requires sendPayload`);
+    }
+    if (hb.expectReply != null && !hasPing) {
+      errors.push(`${hbPrefix}: expectReply requires sendIntervalSec`);
+    }
+  }
+
+  if (s.inboundType != null) {
+    const direction = typeDirections[s.inboundType];
+    if (!direction) {
+      errors.push(`${prefix}: unknown inboundType '${s.inboundType}'`);
+    } else if (direction !== "EDGE_TO_CLOUD") {
+      errors.push(`${prefix}: inboundType '${s.inboundType}' must be an EDGE_TO_CLOUD type`);
+    }
+  }
+  if (s.inboundType != null && s.resolver != null) {
+    errors.push(`${prefix}: set either inboundType or resolver, not both`);
+  }
+  if (s.resolver != null) {
+    if (s.resolver.kind == null || s.resolver.kind.trim() === "") {
+      errors.push(`${prefix}: resolver kind must not be blank`);
+    }
+    if (s.resolver.patterns != null) {
+      for (const target of Object.values(s.resolver.patterns)) {
+        const direction = typeDirections[target];
+        if (!direction) {
+          errors.push(`${prefix}: resolver maps to unknown type '${target}'`);
+        } else if (direction !== "EDGE_TO_CLOUD") {
+          errors.push(`${prefix}: resolver type '${target}' must be an EDGE_TO_CLOUD type`);
+        }
+      }
+    }
+  }
+}
+
+function checkPositive(
+  prefix: string,
+  field: string,
+  value: number | null | undefined,
+  errors: string[],
+): void {
+  if (value != null && value <= 0) {
+    errors.push(`${prefix}.${field} must be positive`);
   }
 }
 

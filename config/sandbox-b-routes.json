@@ -1,0 +1,23 @@
+[
+  {
+    "deviceId": "meter-gw-12",
+    "host": "127.0.0.1",
+    "bindings": [
+      { "messageType": "SETPOINT_UPDATE", "transport": "TCP", "channel": { "kind": "PORT", "value": "9300" } }
+    ],
+    "tcpProtocol": { "startDelimiter": "\\<start>", "endDelimiter": "end", "expectedAck": "ACK" },
+    "tcpSession": {
+      "mode": "PERSISTENT",
+      "role": "CLIENT",
+      "port": 9300,
+      "heartbeat": {
+        "sendIntervalSec": 30,
+        "sendPayload": "PING",
+        "expectReply": "PONG",
+        "replyTimeoutMs": 5000,
+        "missThreshold": 3
+      },
+      "inboundType": "METER_READING"
+    }
+  }
+]

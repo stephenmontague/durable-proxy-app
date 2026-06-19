@@ -1,12 +1,17 @@
 package com.proxyapp.control;
+import com.proxyapp.control.model.CatalogEntryDto;
+import com.proxyapp.control.model.ProxyControlState;
 
 import com.proxyapp.config.ProxyProperties;
 import com.proxyapp.ingress.FtpIngressListener;
 import com.proxyapp.ingress.TcpSocketServer;
 import com.proxyapp.routing.ConfigValidator;
+import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.MessageCatalog;
 import com.proxyapp.routing.RouteTable;
 import com.proxyapp.routing.RoutingState;
+import com.proxyapp.session.model.DeviceSessionConfig;
+import com.proxyapp.session.TcpSessionManager;
 import io.temporal.worker.Worker;
 import io.temporal.worker.WorkerFactory;
 import org.slf4j.Logger;
@@ -34,16 +39,19 @@ public class Reconciler {
     private final RoutingState routingState;
     private final TcpSocketServer tcpSocketServer;
     private final FtpIngressListener ftpIngressListener;
+    private final TcpSessionManager tcpSessionManager;
     private final WorkerFactory workerFactory;
 
     public Reconciler(ProxyProperties properties, MessageCatalog catalog,
                       RoutingState routingState, TcpSocketServer tcpSocketServer,
-                      FtpIngressListener ftpIngressListener, WorkerFactory workerFactory) {
+                      FtpIngressListener ftpIngressListener, TcpSessionManager tcpSessionManager,
+                      WorkerFactory workerFactory) {
         this.properties = properties;
         this.catalog = catalog;
         this.routingState = routingState;
         this.tcpSocketServer = tcpSocketServer;
         this.ftpIngressListener = ftpIngressListener;
+        this.tcpSessionManager = tcpSessionManager;
         this.workerFactory = workerFactory;
     }
 
@@ -74,15 +82,25 @@ public class Reconciler {
         if (desired.isEnabled()) {
             tcpSocketServer.reconcile(table.inboundTcpProtocols());
             ftpIngressListener.reconcile(table.inboundFtpFolders());
+            tcpSessionManager.reconcile(persistentSessions(desired.getDevices()));
             setDataWorkerSuspended(false);
         } else {
             tcpSocketServer.reconcile(Map.of());
             ftpIngressListener.reconcile(Set.of());
+            tcpSessionManager.reconcile(List.of());
             setDataWorkerSuspended(true);
         }
         log.info("applied control state v{}: enabled={}, devices={}, tcpPorts={}, ftpFolders={}, httpPaths={}",
                 desired.getVersion(), desired.isEnabled(), desired.getDevices().size(),
                 table.inboundTcpPorts(), table.inboundFtpFolders(), table.inboundHttpPaths());
+    }
+
+    /** Devices whose session is PERSISTENT, as the slim configs the session manager reconciles. */
+    private List<DeviceSessionConfig> persistentSessions(List<EdgeConfig> devices) {
+        return devices.stream()
+                .filter(d -> d.tcpSession() != null && d.tcpSession().isPersistent())
+                .map(d -> new DeviceSessionConfig(d.deviceId(), d.host(), d.tcpProtocol(), d.tcpSession()))
+                .toList();
     }
 
     /**

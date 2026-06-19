@@ -7,6 +7,9 @@ import type { WorkerLiveness } from "@/lib/types";
 const ADDRESS = process.env.TEMPORAL_ADDRESS ?? "localhost:7233";
 const NAMESPACE = process.env.TEMPORAL_NAMESPACE ?? "default";
 
+/** Cloud app base URL — backs the config read model (H2) and the demo dispatch/confirms. */
+export const DUMMY_CLOUD_URL = process.env.DUMMY_CLOUD_URL ?? "http://localhost:8091";
+
 export const CONTROL_WORKFLOW_ID = process.env.PROXY_CONTROL_WORKFLOW_ID ?? "proxy-control";
 export const DATA_TASK_QUEUE = process.env.PROXY_TASK_QUEUE ?? "proxy-main";
 export const CONTROL_TASK_QUEUE = process.env.PROXY_CONTROL_TASK_QUEUE ?? "proxy-control";

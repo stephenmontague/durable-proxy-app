@@ -23,7 +23,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { awaitConfigOutcome, postSignal } from "@/lib/actions";
+import { Switch } from "@/components/ui/switch";
+import { FlowLegend } from "@/components/catalog/flow-legend";
+import { postSignal } from "@/lib/actions";
 import { CODECS, type CatalogEntryDto, type CodecName, type Direction, type ProxyControlState } from "@/lib/types";
 import { validateCatalogEntry } from "@/lib/validate";
 
@@ -102,16 +104,16 @@ export function TypeForm({
   const apply = async () => {
     setApplying(true);
     try {
-      const prevVersion = state.version;
       const entry: CatalogEntryDto = {
         type: draft.type.trim(),
         direction: draft.direction,
         codec: draft.codec,
         cloudEndpoint: edgeToCloud && draft.cloudEndpoint?.trim() ? draft.cloudEndpoint.trim() : null,
         businessIdField: draft.businessIdField?.trim() ? draft.businessIdField.trim() : null,
+        // Only meaningful for inbound dedup; force off for CLOUD_TO_EDGE so it can't silently linger.
+        allowDuplicates: edgeToCloud ? (draft.allowDuplicates ?? false) : false,
       };
-      await postSignal("upsert-message-type", entry);
-      const outcome = await awaitConfigOutcome(prevVersion);
+      const outcome = await postSignal("upsert-message-type", entry);
       if (outcome.accepted) {
         toast.success(`Message type "${entry.type}" saved`, {
           description: "The proxy rebuilds its catalog on the next reconcile.",
@@ -143,6 +145,8 @@ export function TypeForm({
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
+          <FlowLegend direction={draft.direction} />
+
           <Field label="Type name" hint="A stable key, conventionally UPPER_SNAKE_CASE.">
             <Input
               value={draft.type}
@@ -153,7 +157,10 @@ export function TypeForm({
           </Field>
 
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Direction">
+            <Field
+              label="Direction"
+              hint="Cloud → Edge: the proxy dispatches to the device. Edge → Cloud: the device sends to the proxy, which forwards to the cloud endpoint."
+            >
               <Select
                 value={draft.direction}
                 onValueChange={(v) =>
@@ -199,7 +206,10 @@ export function TypeForm({
           </div>
 
           {edgeToCloud && (
-            <Field label="Cloud endpoint" hint="Path the proxy POSTs inbound messages to.">
+            <Field
+              label="Cloud endpoint"
+              hint="Path on the cloud app the proxy forwards this inbound message to — e.g. /api/command-result. Lives on the cloud; separate from the device's ingress channel."
+            >
               <Input
                 value={draft.cloudEndpoint ?? ""}
                 placeholder="/api/shipment-notice"
@@ -219,6 +229,23 @@ export function TypeForm({
               onChange={(e) => setDraft({ ...draft, businessIdField: e.target.value })}
             />
           </Field>
+
+          {edgeToCloud && (
+            <Field
+              label="Allow duplicates"
+              hint="On: every inbound message is delivered, even byte-identical repeats (event/telemetry streams). Off: identical payloads dedup to a single delivery."
+            >
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={draft.allowDuplicates ?? false}
+                  onCheckedChange={(checked) => setDraft({ ...draft, allowDuplicates: checked })}
+                />
+                <span className="readout text-[11px] text-ink-soft">
+                  {(draft.allowDuplicates ?? false) ? "deliver every message" : "dedup identical payloads"}
+                </span>
+              </div>
+            </Field>
+          )}
 
           {errors.length > 0 && (
             <div className="border border-err/40 bg-err/10 px-3 py-2">

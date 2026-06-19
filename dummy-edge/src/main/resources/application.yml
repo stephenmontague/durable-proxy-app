@@ -27,6 +27,12 @@ edge:
   # Simulated device latency before it pushes the paired confirm
   confirm-delay-ms: 300
 
+# Heartbeat/ack trace (PING/PONG, ACK) for the persistent channel — OFF by default so it never adds
+# noise. The persistent / sandbox-* profiles flip it to INFO for the demo.
+logging:
+  level:
+    heartbeat: "OFF"
+
 ---
 spring:
   config:
@@ -58,3 +64,67 @@ spring:
 
 edge:
   xml: true
+
+---
+# Persistent-session device (just run-dummy-edge-persistent): the device listens on 9100, the
+# proxy dials in as a CLIENT and keeps the socket warm with PING/PONG heartbeats. A command rides
+# the live socket and the device pushes CONFIG_ACK back over the same socket. Pair with
+# config/persistent-routes.json (just demo-config-persistent).
+spring:
+  config:
+    activate:
+      on-profile: persistent
+
+logging:
+  level:
+    heartbeat: INFO
+edge:
+  persistent:
+    enabled: true
+    listen-port: 9100
+
+---
+# Sandbox A — warehouse sortation device: CSV telemetry, STX/ETX framing, persistent socket.
+# One binary, config-only. Pair with config/sandbox-a-*.json on namespace sandbox-a.
+# (just run-dummy-edge-sandbox-a)
+spring:
+  config:
+    activate:
+      on-profile: sandbox-a
+logging:
+  level:
+    heartbeat: INFO
+edge:
+  tcp:
+    start-delimiter: "\x02"   # STX
+    end-delimiter: "\x03"     # ETX
+  persistent:
+    enabled: true
+    listen-port: 9100
+    emit-payload: "SCAN,PKG-44821,LANE-3,2026-06-15T14:03:22"
+    emit-interval-sec: 8
+
+---
+# Sandbox B — utility smart-grid gateway: XML telemetry, <start>/end framing, persistent socket.
+# Same binary, totally different client. Offset ports so it sits next to Sandbox A.
+# Pair with config/sandbox-b-*.json on namespace sandbox-b. (just run-dummy-edge-sandbox-b)
+spring:
+  config:
+    activate:
+      on-profile: sandbox-b
+server:
+  port: 8192
+logging:
+  level:
+    heartbeat: INFO
+edge:
+  tcp-listen-port: 9201
+  ftp-listen-port: 2322
+  tcp:
+    start-delimiter: "<start>"
+    end-delimiter: "end"
+  persistent:
+    enabled: true
+    listen-port: 9300
+    emit-payload: "<reading><meter>M-9001</meter><kwh>42.5</kwh></reading>"
+    emit-interval-sec: 12

@@ -1,6 +1,7 @@
 package com.proxyapp.control;
+import com.proxyapp.control.model.CatalogEntryDto;
 
-import com.proxyapp.routing.Direction;
+import com.proxyapp.routing.model.Direction;
 
 import java.util.ArrayList;
 import java.util.HashSet;

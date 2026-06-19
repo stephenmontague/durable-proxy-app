@@ -36,8 +36,31 @@ public class DemoController {
         return dispatcher.dispatch(DeviceFleetCatalog.REPORT_REQUEST, body);
     }
 
+    /**
+     * Generic dispatch for ANY catalog type — backs the catalog-driven DISPATCH tab. Body:
+     * {@code {messageType, businessId, payload}} where {@code payload} is the codec-appropriate
+     * string (CSV / XML / JSON); the proxy encodes it for the wire per the type's codec.
+     */
+    @PostMapping("/demo/dispatch")
+    public Map<String, Object> dispatch(@RequestBody JsonNode body) {
+        String messageType = text(body, "messageType");
+        String businessId = text(body, "businessId");
+        if (messageType.isBlank() || businessId.isBlank()) {
+            throw new IllegalArgumentException("messageType and businessId are required");
+        }
+        JsonNode payloadNode = body.get("payload");
+        String payload = payloadNode == null || payloadNode.isNull() ? ""
+                : payloadNode.isTextual() ? payloadNode.textValue() : payloadNode.toString();
+        return dispatcher.dispatch(new CanonicalMessage(messageType, businessId, payload));
+    }
+
     @GetMapping("/demo/confirms")
     public List<CanonicalMessage> confirms() {
         return confirmStore.all();
+    }
+
+    private static String text(JsonNode body, String field) {
+        JsonNode n = body.get(field);
+        return n == null || n.isNull() ? "" : n.asText("");
     }
 }

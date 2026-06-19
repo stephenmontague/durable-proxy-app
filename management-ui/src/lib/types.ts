@@ -20,6 +20,12 @@ export interface CatalogEntryDto {
   codec: CodecName;
   cloudEndpoint?: string | null;
   businessIdField?: string | null;
+  /**
+   * EDGE_TO_CLOUD only. When true, identical inbound pushes are delivered individually instead of
+   * deduped — for event/telemetry streams where two byte-identical frames are two real observations.
+   * Default/absent = false (dedup on).
+   */
+  allowDuplicates?: boolean;
 }
 
 export interface Channel {
@@ -45,6 +51,46 @@ export interface TcpProtocol {
   awaitReply?: boolean | null; // null/undefined = true (wait for the reply)
 }
 
+export type SessionMode = "PER_MESSAGE" | "PERSISTENT";
+export type SessionRole = "CLIENT" | "SERVER";
+export type CorrelationStrategy = "SINGLE_IN_FLIGHT" | "CORRELATION_ID" | "SEQUENCE";
+
+/** Liveness for a persistent session (com.proxyapp.routing.TcpSession.Heartbeat). */
+export interface Heartbeat {
+  sendIntervalSec?: number | null;
+  sendPayload?: string | null; // WireString
+  expectReply?: string | null; // WireString
+  replyTimeoutMs?: number | null;
+  expectInboundSec?: number | null;
+  missThreshold?: number | null;
+}
+
+/** Request/response matching over the shared socket (TcpSession.Correlation). */
+export interface Correlation {
+  strategy?: CorrelationStrategy | null;
+  field?: string | null;
+  delimiter?: string | null;
+}
+
+/**
+ * Persistent-TCP-session config (com.proxyapp.routing.TcpSession), per device. Absent or mode
+ * PER_MESSAGE = today's connect-per-message behavior; PERSISTENT keeps a heartbeated socket warm.
+ * Frame delimiters reuse the device/binding tcpProtocol. See docs/persistent-tcp-sessions.md.
+ */
+export interface TcpSession {
+  mode: SessionMode;
+  role?: SessionRole | null;
+  port?: number | null; // CLIENT: device port the proxy dials (host = EdgeConfig.host)
+  listenPort?: number | null; // SERVER: local port the proxy listens on
+  handshakeId?: string | null;
+  heartbeat?: Heartbeat | null;
+  correlation?: Correlation | null;
+  /** Single message type for unsolicited device→cloud frames (an EDGE_TO_CLOUD type). */
+  inboundType?: string | null;
+  /** Or, for a socket carrying several inbound types: a content resolver. Mutually exclusive. */
+  resolver?: ResolverConfig | null;
+}
+
 export interface RouteBinding {
   messageType: string | null;
   transport: Transport;
@@ -62,6 +108,18 @@ export interface EdgeConfig {
   ftpPassword?: string | null;
   bindings: RouteBinding[];
   tcpProtocol?: TcpProtocol | null;
+  tcpSession?: TcpSession | null;
+}
+
+export type SessionState = "CONNECTING" | "UP" | "DOWN";
+
+/** Per-device persistent-link health (com.proxyapp.session.DeviceSessionStatus). */
+export interface DeviceSessionStatus {
+  deviceId: string;
+  role: SessionRole;
+  state: SessionState;
+  lastHeartbeatAt?: string | null;
+  inflight: number;
 }
 
 /** What the proxy reports back after each reconcile (com.proxyapp.control.AppliedStatus). */
@@ -75,6 +133,8 @@ export interface AppliedStatus {
   reportedAt: string;
   /** False = nothing will relaunch the proxy after RESTART (it acts like SHUTDOWN). */
   supervised?: boolean;
+  /** Per-device persistent-link health; empty/absent when no device uses a persistent session. */
+  sessions?: DeviceSessionStatus[] | null;
 }
 
 /** The control workflow's queryable state (com.proxyapp.control.ProxyControlState). */

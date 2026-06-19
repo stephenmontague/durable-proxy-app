@@ -1,0 +1,4 @@
+[
+  { "type": "SETPOINT_UPDATE", "direction": "CLOUD_TO_EDGE", "codec": "xml", "cloudEndpoint": null, "businessIdField": "id" },
+  { "type": "METER_READING", "direction": "EDGE_TO_CLOUD", "codec": "xml", "cloudEndpoint": "/api/meter-reading", "businessIdField": "meter" }
+]

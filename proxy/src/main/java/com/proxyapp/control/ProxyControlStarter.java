@@ -1,9 +1,12 @@
 package com.proxyapp.control;
+import com.proxyapp.control.model.CatalogEntryDto;
+import com.proxyapp.control.model.ProxyControlState;
+import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.proxyapp.config.ProxyProperties;
-import com.proxyapp.routing.EdgeConfig;
+import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.MessageCatalog;
 import io.temporal.api.enums.v1.WorkflowIdConflictPolicy;
 import io.temporal.client.WorkflowClient;

@@ -1,6 +1,13 @@
 # Design: Persistent TCP Sessions + Heartbeats (multi-device)
 
-> **Status:** design only — not yet implemented. Tracked under PLAN.md Part 3 "Later — Hardening & rollout."
+> **Status:** implemented (phases 1–6) across the proxy, the management UI, and the `dummy-edge`
+> demo. This remains the design of record; the code lives in `com.proxyapp.session`
+> (`TcpSessionManager`, `DeviceSession`) + `TcpSession` config, with the connection table in the UI.
+> Try it: `just run-dummy-edge-persistent` then `just demo-config-persistent`. SERVER role supports
+> both a per-device listen port and **shared listen ports with handshake demux** (the
+> `TcpSessionManager` reads each device's newline-terminated handshake id on connect). Unsolicited
+> inbound is typed either by a single `inboundType` or, for a socket carrying several types, by a
+> content `MessageTypeResolver` (kind `content-pattern`). All paths are wired end-to-end.
 
 ## Context
 
@@ -88,7 +95,7 @@ So **don't store session contents in a workflow** — the socket part isn't stor
 ## Guarantees / non-goals
 
 - Heartbeats stay out of Temporal.
-- Delivery is still **at-least-once** (crash mid-send → activity retry → possible re-send) — the device must tolerate duplicates or use the dedup / allow-duplicate setting. The persistent socket changes transport mechanics, not the delivery guarantee.
+- Delivery is still **at-least-once** (crash mid-send → activity retry → possible re-send) — the device/cloud must tolerate duplicates. Inbound dedup is a per-type catalog knob, `allowDuplicates`: **off** (default) collapses byte-identical pushes to one delivery via the `{type}-{businessId}` activity id; **on** gives every push a unique activity id so each is delivered (event/telemetry streams where two identical frames are two real observations). The persistent socket changes transport mechanics, not the delivery guarantee.
 - PER_MESSAGE TCP devices are fully unaffected.
 
 ## Phased implementation

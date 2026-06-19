@@ -1,0 +1,4 @@
+[
+  { "type": "DIVERT_COMMAND", "direction": "CLOUD_TO_EDGE", "codec": "raw", "cloudEndpoint": null, "businessIdField": null },
+  { "type": "SCAN_EVENT", "direction": "EDGE_TO_CLOUD", "codec": "raw", "cloudEndpoint": "/api/scan-event", "businessIdField": null, "allowDuplicates": true }
+]

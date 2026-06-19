@@ -1,13 +1,13 @@
 package com.proxyapp.profile;
 
-import com.proxyapp.routing.CatalogEntry;
-import com.proxyapp.routing.ChannelKind;
-import com.proxyapp.routing.DeviceTemplate;
-import com.proxyapp.routing.DeviceTemplate.TemplateBinding;
-import com.proxyapp.routing.Direction;
+import com.proxyapp.routing.model.CatalogEntry;
+import com.proxyapp.routing.model.ChannelKind;
+import com.proxyapp.routing.model.DeviceTemplate;
+import com.proxyapp.routing.model.DeviceTemplate.TemplateBinding;
+import com.proxyapp.routing.model.Direction;
 import com.proxyapp.routing.MessageCatalog;
-import com.proxyapp.routing.MessageType;
-import com.proxyapp.routing.Transport;
+import com.proxyapp.routing.model.MessageType;
+import com.proxyapp.routing.model.Transport;
 
 import java.util.List;
 

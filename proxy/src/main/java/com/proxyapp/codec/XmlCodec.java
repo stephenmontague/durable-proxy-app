@@ -1,7 +1,7 @@
 package com.proxyapp.codec;
 
 import com.proxyapp.model.CanonicalMessage;
-import com.proxyapp.routing.CatalogEntry;
+import com.proxyapp.routing.model.CatalogEntry;
 import org.w3c.dom.Document;
 import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;

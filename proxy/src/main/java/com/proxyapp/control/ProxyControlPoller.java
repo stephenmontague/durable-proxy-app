@@ -1,8 +1,13 @@
 package com.proxyapp.control;
+import com.proxyapp.control.model.AppliedStatus;
+import com.proxyapp.control.model.ProxyControlState;
+import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 
 import com.proxyapp.ingress.FtpIngressListener;
 import com.proxyapp.ingress.TcpSocketServer;
 import com.proxyapp.routing.RoutingState;
+import com.proxyapp.session.model.DeviceSessionStatus;
+import com.proxyapp.session.TcpSessionManager;
 import io.temporal.client.WorkflowClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +16,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.SmartLifecycle;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -42,6 +48,7 @@ public class ProxyControlPoller implements SmartLifecycle {
     private final RoutingState routingState;
     private final TcpSocketServer tcpSocketServer;
     private final FtpIngressListener ftpIngressListener;
+    private final TcpSessionManager tcpSessionManager;
     private final ApplicationContext applicationContext;
     private final String startedAt = Instant.now().toString();
     private final AtomicBoolean exiting = new AtomicBoolean();
@@ -54,10 +61,12 @@ public class ProxyControlPoller implements SmartLifecycle {
     private volatile boolean running;
     private volatile long lastReportedVersion = -1;
     private volatile Boolean lastReportedEnabled;
+    private volatile String lastReportedSessionSig = "";
 
     public ProxyControlPoller(WorkflowClient workflowClient, ProxyControlStarter starter,
                               Reconciler reconciler, RoutingState routingState,
                               TcpSocketServer tcpSocketServer, FtpIngressListener ftpIngressListener,
+                              TcpSessionManager tcpSessionManager,
                               ApplicationContext applicationContext) {
         this.workflowClient = workflowClient;
         this.starter = starter;
@@ -65,6 +74,7 @@ public class ProxyControlPoller implements SmartLifecycle {
         this.routingState = routingState;
         this.tcpSocketServer = tcpSocketServer;
         this.ftpIngressListener = ftpIngressListener;
+        this.tcpSessionManager = tcpSessionManager;
         this.applicationContext = applicationContext;
     }
 
@@ -99,24 +109,39 @@ public class ProxyControlPoller implements SmartLifecycle {
         }
     }
 
-    /** Signal the applied state back whenever it changes (and once at startup). */
+    /**
+     * Signal the applied state back when it changes (and once at startup) — including per-device
+     * link transitions (UP/DOWN/CONNECTING). Heartbeats themselves never trigger a report: the
+     * signature is state-only, so a steady link is silent and only transitions reach Temporal.
+     */
     private void maybeReportApplied(ProxyControlWorkflow stub) {
         long appliedVersion = routingState.appliedVersion();
         boolean enabled = routingState.enabled();
+        List<DeviceSessionStatus> sessions = tcpSessionManager.statuses();
+        String sessionSig = sessionSignature(sessions);
         if (appliedVersion == lastReportedVersion
-                && lastReportedEnabled != null && lastReportedEnabled == enabled) {
+                && lastReportedEnabled != null && lastReportedEnabled == enabled
+                && sessionSig.equals(lastReportedSessionSig)) {
             return;
         }
         AppliedStatus status = new AppliedStatus(appliedVersion, enabled,
                 routingState.table().inboundHttpPaths().stream().sorted().toList(),
                 tcpSocketServer.activePorts().stream().sorted().toList(),
                 ftpIngressListener.activeFolders().stream().sorted().toList(),
-                startedAt, Instant.now().toString(), SUPERVISED);
+                startedAt, Instant.now().toString(), SUPERVISED, sessions);
         stub.reportApplied(status);
         lastReportedVersion = appliedVersion;
         lastReportedEnabled = enabled;
-        log.info("reported applied state v{} (enabled={}) to control workflow",
-                appliedVersion, enabled);
+        lastReportedSessionSig = sessionSig;
+        log.info("reported applied state v{} (enabled={}, sessions=[{}]) to control workflow",
+                appliedVersion, enabled, sessionSig);
+    }
+
+    /** deviceId:state pairs only — flips on link transitions, not on every heartbeat. */
+    private static String sessionSignature(List<DeviceSessionStatus> sessions) {
+        return String.join(",", sessions.stream()
+                .map(s -> s.deviceId() + ":" + s.state())
+                .toList());
     }
 
     /** Act on a pending shutdown/restart command: ack it, then exit the JVM gracefully. */

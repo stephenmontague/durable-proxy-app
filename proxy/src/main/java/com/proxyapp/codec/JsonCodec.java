@@ -3,7 +3,7 @@ package com.proxyapp.codec;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.proxyapp.model.CanonicalMessage;
-import com.proxyapp.routing.CatalogEntry;
+import com.proxyapp.routing.model.CatalogEntry;
 
 import java.nio.charset.StandardCharsets;
 

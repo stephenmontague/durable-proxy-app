@@ -1,9 +1,18 @@
 package com.proxyapp.routing;
+import com.proxyapp.routing.model.Channel;
+import com.proxyapp.routing.model.EdgeConfig;
+import com.proxyapp.routing.model.MessageType;
+import com.proxyapp.routing.model.ResolverConfig;
+import com.proxyapp.routing.model.RouteBinding;
+import com.proxyapp.routing.model.TcpProtocol;
+import com.proxyapp.routing.model.TcpSession;
+import com.proxyapp.routing.model.Transport;
 
 import com.proxyapp.profile.DeviceFleetProfile;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -166,5 +175,222 @@ class ConfigValidatorTest {
                         new ResolverConfig("filename-pattern", java.util.Map.of()))));
         List<String> errors = ConfigValidator.validate(catalog, pool, List.of(device));
         assertThat(errors).singleElement().asString().contains("only supported on FTP");
+    }
+
+    // ---- Persistent TCP session (TcpSession) rules. Mirrored in validate.test.ts. ----
+
+    @Test
+    void validPersistentClientSessionPasses() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null,
+                new TcpSession.Heartbeat(30, "<VT>PING<FS>", "PONG", 5000, 60, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void validPersistentServerWatchdogSessionPasses() {
+        // SERVER role, inbound watchdog only (no outbound ping), no device host needed
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
+                null, 6005, null, new TcpSession.Heartbeat(null, null, null, null, 60, 2), null);
+        EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void perMessageSessionIsNotValidated() {
+        // PER_MESSAGE short-circuits: no role / no liveness is ignored (that's today's behavior)
+        TcpSession session = new TcpSession(TcpSession.Mode.PER_MESSAGE, null, null, null, null,
+                null, null);
+        EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void persistentSessionRequiresRole() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, null, null, null, null,
+                new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: PERSISTENT session requires a role (CLIENT or SERVER)");
+    }
+
+    @Test
+    void clientSessionRequiresHostAndPort() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                null, null, null, new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).containsExactly(
+                "a: tcpSession: CLIENT role requires the device host",
+                "a: tcpSession: CLIENT role requires a port");
+    }
+
+    @Test
+    void serverSessionRequiresListenPort() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
+                null, null, null, new TcpSession.Heartbeat(null, null, null, null, 60, 2), null);
+        EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: SERVER role requires a listenPort");
+    }
+
+    @Test
+    void sharedServerPortRequiresHandshake() {
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(
+                serverDevice("a", 6005, null), serverDevice("b", 6005, null)))).containsExactly(
+                "a: tcpSession: SERVER listen port 6005 is shared, so a handshakeId is required",
+                "b: tcpSession: SERVER listen port 6005 is shared, so a handshakeId is required");
+    }
+
+    @Test
+    void sharedServerPortRequiresDistinctHandshakes() {
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(
+                serverDevice("a", 6005, "dev"), serverDevice("b", 6005, "dev")))).containsExactly(
+                "b: tcpSession: duplicate handshakeId 'dev' on shared SERVER listen port 6005");
+    }
+
+    @Test
+    void sharedServerPortWithDistinctHandshakesPasses() {
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(
+                serverDevice("a", 6005, "dev-a"), serverDevice("b", 6005, "dev-b")))).isEmpty();
+    }
+
+    private static EdgeConfig serverDevice(String id, int listenPort, String handshakeId) {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
+                null, listenPort, handshakeId, new TcpSession.Heartbeat(null, null, null, null, 60, 2), null);
+        return new EdgeConfig(id, null, null, null, null, null, List.of(), null, session);
+    }
+
+    @Test
+    void persistentSessionRequiresAtLeastOneLivenessMechanism() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, null, null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).containsExactly(
+                "a: tcpSession: PERSISTENT session requires at least one liveness mechanism "
+                        + "(heartbeat.sendIntervalSec or heartbeat.expectInboundSec)");
+    }
+
+    @Test
+    void heartbeatWireFieldsMustParse() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, new TcpSession.Heartbeat(30, "<NOPE>", null, null, null, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).containsExactly(
+                "a: tcpSession.heartbeat.sendPayload: unknown token '<NOPE>' at position 0");
+    }
+
+    @Test
+    void outboundPingRequiresPayload() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, new TcpSession.Heartbeat(30, null, null, null, null, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession.heartbeat: sendIntervalSec requires sendPayload");
+    }
+
+    @Test
+    void expectReplyRequiresOutboundPing() {
+        // watchdog provides liveness; an expectReply with no ping to answer is meaningless
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.SERVER,
+                null, 6005, null, new TcpSession.Heartbeat(null, null, "PONG", null, 60, 2), null);
+        EdgeConfig device = new EdgeConfig("a", null, null, null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession.heartbeat: expectReply requires sendIntervalSec");
+    }
+
+    @Test
+    void heartbeatIntervalsMustBePositive() {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, new TcpSession.Heartbeat(0, "PING", null, null, null, 3), null);
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession.heartbeat.sendIntervalSec must be positive");
+    }
+
+    @Test
+    void validInboundTypePasses() {
+        TcpSession session = persistentClient("COMMAND_RESULT"); // an EDGE_TO_CLOUD type
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void unknownInboundTypeIsRejected() {
+        TcpSession session = persistentClient("MYSTERY");
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: unknown inboundType 'MYSTERY'");
+    }
+
+    @Test
+    void inboundTypeMustBeEdgeToCloud() {
+        TcpSession session = persistentClient("DEVICE_COMMAND"); // a CLOUD_TO_EDGE type
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: inboundType 'DEVICE_COMMAND' must be an EDGE_TO_CLOUD type");
+    }
+
+    private static TcpSession persistentClient(String inboundType) {
+        return new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT, 9001, null, null,
+                new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null, inboundType);
+    }
+
+    @Test
+    void validResolverPasses() {
+        EdgeConfig device = resolverClient(Map.of("STATUS", "COMMAND_RESULT")); // EDGE_TO_CLOUD type
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
+    }
+
+    @Test
+    void inboundTypeAndResolverAreMutuallyExclusive() {
+        // each individually valid -> only the mutual-exclusion error
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null,
+                "COMMAND_RESULT", new ResolverConfig("content-pattern", Map.of("S", "COMMAND_RESULT")));
+        EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
+                List.of(), null, session);
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: set either inboundType or resolver, not both");
+    }
+
+    @Test
+    void resolverKindMustNotBeBlank() {
+        EdgeConfig device = resolverClient("", Map.of("STATUS", "COMMAND_RESULT"));
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
+                .containsExactly("a: tcpSession: resolver kind must not be blank");
+    }
+
+    @Test
+    void resolverMustMapToKnownEdgeToCloudTypes() {
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(resolverClient(Map.of("X", "MYSTERY")))))
+                .containsExactly("a: tcpSession: resolver maps to unknown type 'MYSTERY'");
+        assertThat(ConfigValidator.validate(catalog, pool, List.of(resolverClient(Map.of("X", "DEVICE_COMMAND")))))
+                .containsExactly("a: tcpSession: resolver type 'DEVICE_COMMAND' must be an EDGE_TO_CLOUD type");
+    }
+
+    private static EdgeConfig resolverClient(Map<String, String> patterns) {
+        return resolverClient("content-pattern", patterns);
+    }
+
+    private static EdgeConfig resolverClient(String kind, Map<String, String> patterns) {
+        TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
+                9001, null, null, new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null,
+                null, new ResolverConfig(kind, patterns));
+        return new EdgeConfig("a", null, "10.0.0.5", null, null, null, List.of(), null, session);
     }
 }
