@@ -1,4 +1,4 @@
-package com.proxyapp.routing;
+package com.proxyapp.routing.model;
 
 /** Direction of a message flow, from the proxy's point of view. */
 public enum Direction {

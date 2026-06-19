@@ -1,6 +1,6 @@
-package com.proxyapp.control;
+package com.proxyapp.control.model;
 
-import com.proxyapp.session.DeviceSessionStatus;
+import com.proxyapp.session.model.DeviceSessionStatus;
 
 import java.util.List;
 

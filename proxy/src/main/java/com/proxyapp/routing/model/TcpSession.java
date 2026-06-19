@@ -1,4 +1,4 @@
-package com.proxyapp.routing;
+package com.proxyapp.routing.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 

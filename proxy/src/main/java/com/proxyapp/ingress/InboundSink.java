@@ -1,6 +1,6 @@
 package com.proxyapp.ingress;
 
-import com.proxyapp.routing.Transport;
+import com.proxyapp.routing.model.Transport;
 
 /**
  * What a transport listener needs from the ingress pipeline: hand over one raw message,

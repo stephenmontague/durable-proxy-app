@@ -1,4 +1,11 @@
 package com.proxyapp.routing;
+import com.proxyapp.routing.model.ChannelKind;
+import com.proxyapp.routing.model.Direction;
+import com.proxyapp.routing.model.EdgeConfig;
+import com.proxyapp.routing.model.RouteBinding;
+import com.proxyapp.routing.model.TcpProtocol;
+import com.proxyapp.routing.model.TcpSession;
+import com.proxyapp.routing.model.Transport;
 
 import java.util.ArrayList;
 import java.util.HashMap;

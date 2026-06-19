@@ -1,9 +1,9 @@
 package com.proxyapp.ingress;
 
 import com.proxyapp.model.CanonicalMessage;
-import com.proxyapp.routing.CatalogEntry;
-import com.proxyapp.routing.Direction;
-import com.proxyapp.routing.MessageType;
+import com.proxyapp.routing.model.CatalogEntry;
+import com.proxyapp.routing.model.Direction;
+import com.proxyapp.routing.model.MessageType;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -1,9 +1,12 @@
 package com.proxyapp.control;
+import com.proxyapp.control.model.AppliedStatus;
+import com.proxyapp.control.model.ProxyControlState;
+import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 
 import com.proxyapp.ingress.FtpIngressListener;
 import com.proxyapp.ingress.TcpSocketServer;
 import com.proxyapp.routing.RoutingState;
-import com.proxyapp.session.DeviceSessionStatus;
+import com.proxyapp.session.model.DeviceSessionStatus;
 import com.proxyapp.session.TcpSessionManager;
 import io.temporal.client.WorkflowClient;
 import org.slf4j.Logger;

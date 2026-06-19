@@ -1,13 +1,13 @@
 package com.proxyapp.temporal.activity;
 
 import com.proxyapp.codec.CodecRegistry;
-import com.proxyapp.connector.ChannelTarget;
+import com.proxyapp.connector.model.ChannelTarget;
 import com.proxyapp.connector.ConnectorFactory;
 import com.proxyapp.model.CanonicalMessage;
-import com.proxyapp.routing.MessageType;
+import com.proxyapp.routing.model.MessageType;
 import com.proxyapp.routing.RouteTable;
 import com.proxyapp.routing.RoutingState;
-import com.proxyapp.routing.Transport;
+import com.proxyapp.routing.model.Transport;
 import com.proxyapp.session.TcpSessionManager;
 import io.temporal.failure.ApplicationFailure;
 import io.temporal.spring.boot.ActivityImpl;

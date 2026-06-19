@@ -1,4 +1,4 @@
-package com.proxyapp.session;
+package com.proxyapp.session.model;
 
 /** Liveness of a persistent device link, surfaced per device in the UI's connection table. */
 public enum DeviceSessionState {

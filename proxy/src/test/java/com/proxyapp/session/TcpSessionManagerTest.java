@@ -1,6 +1,8 @@
 package com.proxyapp.session;
+import com.proxyapp.session.model.DeviceSessionConfig;
+import com.proxyapp.session.model.DeviceSessionStatus;
 
-import com.proxyapp.routing.TcpSession;
+import com.proxyapp.routing.model.TcpSession;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;

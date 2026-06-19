@@ -1,4 +1,6 @@
 package com.proxyapp.routing;
+import com.proxyapp.routing.model.MessageType;
+import com.proxyapp.routing.model.ResolverConfig;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

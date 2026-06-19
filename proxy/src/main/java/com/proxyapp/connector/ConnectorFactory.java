@@ -1,6 +1,6 @@
 package com.proxyapp.connector;
 
-import com.proxyapp.routing.Transport;
+import com.proxyapp.routing.model.Transport;
 
 import java.util.List;
 import java.util.Map;

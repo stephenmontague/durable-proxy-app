@@ -1,10 +1,13 @@
-package com.proxyapp.control;
+package com.proxyapp.temporal.workflow;
+import com.proxyapp.control.model.AppliedStatus;
+import com.proxyapp.control.model.CatalogEntryDto;
+import com.proxyapp.control.model.ProxyControlState;
 
 import com.proxyapp.profile.DeviceFleetProfile;
-import com.proxyapp.routing.Channel;
-import com.proxyapp.routing.EdgeConfig;
-import com.proxyapp.routing.RouteBinding;
-import com.proxyapp.routing.Transport;
+import com.proxyapp.routing.model.Channel;
+import com.proxyapp.routing.model.EdgeConfig;
+import com.proxyapp.routing.model.RouteBinding;
+import com.proxyapp.routing.model.Transport;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowOptions;
 import io.temporal.testing.TestWorkflowEnvironment;
@@ -134,13 +137,13 @@ class ProxyControlWorkflowTest {
     void tcpProtocolSurvivesTheJacksonRoundTrip() {
         // Through signal payload -> workflow state -> query result; guards against the
         // phantom-property hazard on record helper accessors.
-        com.proxyapp.routing.TcpProtocol mllp = new com.proxyapp.routing.TcpProtocol(
+        com.proxyapp.routing.model.TcpProtocol mllp = new com.proxyapp.routing.model.TcpProtocol(
                 "<VT>", "<FS><CR>", "<VT>ACK {activityId}<FS><CR>",
                 "<VT>NAK {reason}<FS><CR>", "ACK", null);
         EdgeConfig device = new EdgeConfig("gateway-1", "http://edge:8082", "10.0.0.5", null, null,
                 null, List.of(new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP,
                         Channel.port(6001), null,
-                        new com.proxyapp.routing.TcpProtocol(null, "<LF>", null, null, null, false))),
+                        new com.proxyapp.routing.model.TcpProtocol(null, "<LF>", null, null, null, false))),
                 mllp);
         workflow.upsertDevice(device);
 
@@ -152,7 +155,7 @@ class ProxyControlWorkflowTest {
         assertThat(stored.tcpProtocol().expectedAck()).isEqualTo("ACK");
         assertThat(stored.tcpProtocol().awaitReply()).isNull();
         assertThat(stored.tcpProtocol().shouldAwaitReply()).isTrue();
-        com.proxyapp.routing.TcpProtocol override = stored.bindings().get(0).tcpProtocol();
+        com.proxyapp.routing.model.TcpProtocol override = stored.bindings().get(0).tcpProtocol();
         assertThat(override.endDelimiter()).isEqualTo("<LF>");
         assertThat(override.awaitReply()).isFalse();
     }

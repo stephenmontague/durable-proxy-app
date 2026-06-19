@@ -1,4 +1,4 @@
-package com.proxyapp.routing;
+package com.proxyapp.routing.model;
 
 /**
  * One message type as defined by the cloud-side profile. Shipped/managed by the cloud-app

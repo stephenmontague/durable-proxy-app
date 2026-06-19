@@ -1,8 +1,9 @@
-package com.proxyapp.session;
+package com.proxyapp.session.model;
+import com.proxyapp.routing.model.TcpSession;
 
 /**
  * Point-in-time health of one persistent device link, reported to the control workflow inside
- * {@link com.proxyapp.control.AppliedStatus} (so it rides the egress connection like everything
+ * {@link com.proxyapp.control.model.AppliedStatus} (so it rides the egress connection like everything
  * else) and rendered as a per-device lamp in the UI. Mirrored in the management UI's types.ts.
  *
  * @param deviceId        device this link serves

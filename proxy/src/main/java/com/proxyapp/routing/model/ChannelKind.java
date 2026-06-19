@@ -1,4 +1,4 @@
-package com.proxyapp.routing;
+package com.proxyapp.routing.model;
 
 /** How a transport expresses "channel". One inbound channel carries exactly one message type. */
 public enum ChannelKind {

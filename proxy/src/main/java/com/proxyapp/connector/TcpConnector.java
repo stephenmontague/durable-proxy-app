@@ -1,7 +1,8 @@
 package com.proxyapp.connector;
+import com.proxyapp.connector.model.ChannelTarget;
 
-import com.proxyapp.routing.TcpProtocol;
-import com.proxyapp.routing.Transport;
+import com.proxyapp.routing.model.TcpProtocol;
+import com.proxyapp.routing.model.Transport;
 import com.proxyapp.routing.WireString;
 
 import java.io.IOException;

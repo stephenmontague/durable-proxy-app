@@ -1,7 +1,9 @@
 package com.proxyapp.session;
+import com.proxyapp.session.model.DeviceSessionConfig;
+import com.proxyapp.session.model.DeviceSessionState;
 
-import com.proxyapp.routing.TcpProtocol;
-import com.proxyapp.routing.TcpSession;
+import com.proxyapp.routing.model.TcpProtocol;
+import com.proxyapp.routing.model.TcpSession;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

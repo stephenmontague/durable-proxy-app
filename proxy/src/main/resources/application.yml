@@ -13,8 +13,7 @@ spring:
     namespace: default
     workers-auto-discovery:
       packages:
-        - com.proxyapp.temporal
-        - com.proxyapp.control
+        - com.proxyapp.temporal   # all @WorkflowImpl/@ActivityImpl live here (incl. the control workflow)
 
 # 8090-8092 keep clear of the local Docker Temporal UI (8080) and other dev stacks
 server:

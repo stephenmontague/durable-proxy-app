@@ -1,4 +1,6 @@
-package com.proxyapp.ingress;
+package com.proxyapp.controller;
+import com.proxyapp.ingress.FtpIngressListener;
+import com.proxyapp.ingress.TcpSocketServer;
 
 import com.proxyapp.config.ProxyProperties;
 import com.proxyapp.routing.RoutingState;

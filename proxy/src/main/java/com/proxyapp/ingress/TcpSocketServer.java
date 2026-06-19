@@ -1,7 +1,7 @@
 package com.proxyapp.ingress;
 
-import com.proxyapp.routing.TcpProtocol;
-import com.proxyapp.routing.Transport;
+import com.proxyapp.routing.model.TcpProtocol;
+import com.proxyapp.routing.model.Transport;
 import com.proxyapp.routing.WireString;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;

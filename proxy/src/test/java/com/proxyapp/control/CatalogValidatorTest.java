@@ -1,4 +1,5 @@
 package com.proxyapp.control;
+import com.proxyapp.control.model.CatalogEntryDto;
 
 import org.junit.jupiter.api.Test;
 

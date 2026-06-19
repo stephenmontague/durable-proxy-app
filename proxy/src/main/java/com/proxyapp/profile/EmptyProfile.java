@@ -1,6 +1,6 @@
 package com.proxyapp.profile;
 
-import com.proxyapp.routing.DeviceTemplate;
+import com.proxyapp.routing.model.DeviceTemplate;
 import com.proxyapp.routing.MessageCatalog;
 
 import java.util.List;

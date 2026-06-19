@@ -1,8 +1,12 @@
-package com.proxyapp.control;
+package com.proxyapp.temporal.workflow;
+import com.proxyapp.control.CatalogValidator;
+import com.proxyapp.control.model.AppliedStatus;
+import com.proxyapp.control.model.CatalogEntryDto;
+import com.proxyapp.control.model.ProxyControlState;
 
 import com.proxyapp.routing.ConfigValidator;
-import com.proxyapp.routing.EdgeConfig;
-import com.proxyapp.routing.RouteBinding;
+import com.proxyapp.routing.model.EdgeConfig;
+import com.proxyapp.routing.model.RouteBinding;
 import io.temporal.spring.boot.WorkflowImpl;
 import io.temporal.workflow.Workflow;
 import io.temporal.workflow.WorkflowInit;

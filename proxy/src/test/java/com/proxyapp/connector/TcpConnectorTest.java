@@ -1,6 +1,7 @@
 package com.proxyapp.connector;
+import com.proxyapp.connector.model.ChannelTarget;
 
-import com.proxyapp.routing.TcpProtocol;
+import com.proxyapp.routing.model.TcpProtocol;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

@@ -166,7 +166,7 @@ spring:
         cert-chain-file: ${TEMPORAL_CERT_FILE}
     namespace: ${TEMPORAL_NAMESPACE} # <tenant>.<account-id>
     workers-auto-discovery:
-      packages: [com.proxyapp.temporal, com.proxyapp.control]
+      packages: [com.proxyapp.temporal]
 proxy:
   task-queue: proxy-main
   profile: device-fleet # which message catalog/profile to load

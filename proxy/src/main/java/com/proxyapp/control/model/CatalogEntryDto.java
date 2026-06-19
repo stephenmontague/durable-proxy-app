@@ -1,8 +1,8 @@
-package com.proxyapp.control;
+package com.proxyapp.control.model;
 
-import com.proxyapp.routing.CatalogEntry;
-import com.proxyapp.routing.Direction;
-import com.proxyapp.routing.MessageType;
+import com.proxyapp.routing.model.CatalogEntry;
+import com.proxyapp.routing.model.Direction;
+import com.proxyapp.routing.model.MessageType;
 
 /**
  * A message-type definition as it travels through the control workflow: a flat,

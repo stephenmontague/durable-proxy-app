@@ -1,6 +1,6 @@
-package com.proxyapp.connector;
+package com.proxyapp.connector.model;
 
-import com.proxyapp.routing.TcpProtocol;
+import com.proxyapp.routing.model.TcpProtocol;
 
 /** Where an outbound send goes, expressed per transport. */
 public sealed interface ChannelTarget {

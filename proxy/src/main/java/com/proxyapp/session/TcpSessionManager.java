@@ -1,6 +1,9 @@
 package com.proxyapp.session;
+import com.proxyapp.control.model.AppliedStatus;
+import com.proxyapp.session.model.DeviceSessionConfig;
+import com.proxyapp.session.model.DeviceSessionStatus;
 
-import com.proxyapp.routing.TcpSession;
+import com.proxyapp.routing.model.TcpSession;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -1,4 +1,4 @@
-package com.proxyapp.routing;
+package com.proxyapp.routing.model;
 
 /**
  * A transport-specific channel address: a port, an HTTP path, or an FTP folder.

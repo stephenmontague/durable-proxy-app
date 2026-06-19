@@ -1,4 +1,7 @@
 package com.proxyapp.routing;
+import com.proxyapp.routing.model.MessageType;
+import com.proxyapp.routing.model.ResolverConfig;
+import com.proxyapp.routing.model.Transport;
 
 import org.junit.jupiter.api.Test;
 

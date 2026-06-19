@@ -1,6 +1,8 @@
-package com.proxyapp.ingress;
+package com.proxyapp.controller;
+import com.proxyapp.ingress.InboundGateway;
+import com.proxyapp.ingress.IngressException;
 
-import com.proxyapp.routing.Transport;
+import com.proxyapp.routing.model.Transport;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;

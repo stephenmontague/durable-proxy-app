@@ -1,7 +1,7 @@
 package com.proxyapp.ingress;
 
 import com.proxyapp.config.ProxyProperties;
-import com.proxyapp.routing.Transport;
+import com.proxyapp.routing.model.Transport;
 import jakarta.annotation.PreDestroy;
 import org.apache.ftpserver.FtpServer;
 import org.apache.ftpserver.FtpServerFactory;

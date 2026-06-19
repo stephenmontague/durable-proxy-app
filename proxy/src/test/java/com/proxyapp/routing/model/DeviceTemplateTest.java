@@ -1,4 +1,5 @@
-package com.proxyapp.routing;
+package com.proxyapp.routing.model;
+import com.proxyapp.routing.ConfigValidator;
 
 import com.proxyapp.profile.DeviceFleetProfile;
 import org.junit.jupiter.api.Test;

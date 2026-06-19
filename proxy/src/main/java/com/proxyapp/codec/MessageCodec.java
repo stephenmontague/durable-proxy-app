@@ -1,7 +1,7 @@
 package com.proxyapp.codec;
 
 import com.proxyapp.model.CanonicalMessage;
-import com.proxyapp.routing.CatalogEntry;
+import com.proxyapp.routing.model.CatalogEntry;
 
 /**
  * Translates between the edge target's wire format and the canonical message. The message

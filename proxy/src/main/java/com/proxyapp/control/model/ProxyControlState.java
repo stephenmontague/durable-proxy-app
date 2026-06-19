@@ -1,6 +1,7 @@
-package com.proxyapp.control;
+package com.proxyapp.control.model;
+import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 
-import com.proxyapp.routing.EdgeConfig;
+import com.proxyapp.routing.model.EdgeConfig;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

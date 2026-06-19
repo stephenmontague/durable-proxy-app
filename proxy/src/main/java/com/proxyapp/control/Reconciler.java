@@ -1,14 +1,16 @@
 package com.proxyapp.control;
+import com.proxyapp.control.model.CatalogEntryDto;
+import com.proxyapp.control.model.ProxyControlState;
 
 import com.proxyapp.config.ProxyProperties;
 import com.proxyapp.ingress.FtpIngressListener;
 import com.proxyapp.ingress.TcpSocketServer;
 import com.proxyapp.routing.ConfigValidator;
-import com.proxyapp.routing.EdgeConfig;
+import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.MessageCatalog;
 import com.proxyapp.routing.RouteTable;
 import com.proxyapp.routing.RoutingState;
-import com.proxyapp.session.DeviceSessionConfig;
+import com.proxyapp.session.model.DeviceSessionConfig;
 import com.proxyapp.session.TcpSessionManager;
 import io.temporal.worker.Worker;
 import io.temporal.worker.WorkerFactory;

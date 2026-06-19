@@ -1,7 +1,7 @@
 package com.proxyapp.codec;
 
 import com.proxyapp.model.CanonicalMessage;
-import com.proxyapp.routing.CatalogEntry;
+import com.proxyapp.routing.model.CatalogEntry;
 
 import java.nio.charset.StandardCharsets;
 

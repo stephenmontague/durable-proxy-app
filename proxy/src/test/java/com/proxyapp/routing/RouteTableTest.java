@@ -1,4 +1,12 @@
 package com.proxyapp.routing;
+import com.proxyapp.routing.model.Channel;
+import com.proxyapp.routing.model.Direction;
+import com.proxyapp.routing.model.EdgeConfig;
+import com.proxyapp.routing.model.MessageType;
+import com.proxyapp.routing.model.ResolverConfig;
+import com.proxyapp.routing.model.RouteBinding;
+import com.proxyapp.routing.model.TcpProtocol;
+import com.proxyapp.routing.model.Transport;
 
 import com.proxyapp.profile.DeviceFleetProfile;
 import org.junit.jupiter.api.Test;
