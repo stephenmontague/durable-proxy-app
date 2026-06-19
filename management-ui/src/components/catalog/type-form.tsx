@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { FlowLegend } from "@/components/catalog/flow-legend";
 import { postSignal } from "@/lib/actions";
 import { CODECS, type CatalogEntryDto, type CodecName, type Direction, type ProxyControlState } from "@/lib/types";
 import { validateCatalogEntry } from "@/lib/validate";
@@ -144,6 +145,8 @@ export function TypeForm({
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
+          <FlowLegend direction={draft.direction} />
+
           <Field label="Type name" hint="A stable key, conventionally UPPER_SNAKE_CASE.">
             <Input
               value={draft.type}
@@ -154,7 +157,10 @@ export function TypeForm({
           </Field>
 
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Direction">
+            <Field
+              label="Direction"
+              hint="Cloud → Edge: the proxy dispatches to the device. Edge → Cloud: the device sends to the proxy, which forwards to the cloud endpoint."
+            >
               <Select
                 value={draft.direction}
                 onValueChange={(v) =>
@@ -200,7 +206,10 @@ export function TypeForm({
           </div>
 
           {edgeToCloud && (
-            <Field label="Cloud endpoint" hint="Path the proxy POSTs inbound messages to.">
+            <Field
+              label="Cloud endpoint"
+              hint="Path on the cloud app the proxy forwards this inbound message to — e.g. /api/command-result. Lives on the cloud; separate from the device's ingress channel."
+            >
               <Input
                 value={draft.cloudEndpoint ?? ""}
                 placeholder="/api/shipment-notice"

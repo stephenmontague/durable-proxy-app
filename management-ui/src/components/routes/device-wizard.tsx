@@ -23,10 +23,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FlowLegend } from "@/components/catalog/flow-legend";
 import { TypeForm } from "@/components/catalog/type-form";
 import { ConnectionFields } from "@/components/routes/connection-fields";
 import { CustomBindingsEditor, type AvailableType } from "@/components/routes/custom-bindings";
 import { WireProtocolFields } from "@/components/routes/wire-protocol-fields";
+import { channelCopy } from "@/lib/channel-copy";
 import { postSignal } from "@/lib/actions";
 import { matchPreset, summarizeProtocol, TCP_PRESETS } from "@/lib/tcp-presets";
 import { DEVICE_TEMPLATES, materialize, type DeviceTemplateDef, type SiteValues } from "@/lib/templates";
@@ -396,22 +398,33 @@ export function DeviceWizard({
                   channels {showChannels ? "▾" : "▸"}
                 </button>
                 {showChannels && draft && (
-                  <div className="mt-2 flex flex-col gap-1.5">
-                    {draft.bindings.map((b, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <span className="readout w-44 shrink-0 truncate text-[11px]">
-                          {b.messageType ?? "(resolver)"}
-                        </span>
-                        <span className="chip w-14 justify-center">{b.transport}</span>
-                        <Input
-                          className="readout h-7 text-[12px]"
-                          value={channelOverrides[i] ?? b.channel.value}
-                          onChange={(e) =>
-                            setChannelOverrides({ ...channelOverrides, [i]: e.target.value })
-                          }
-                        />
-                      </div>
-                    ))}
+                  <div className="mt-2 flex flex-col gap-2">
+                    <FlowLegend />
+                    {draft.bindings.map((b, i) => {
+                      const dir = b.messageType ? state.typeDirections[b.messageType] : undefined;
+                      const copy = channelCopy(b.transport, dir);
+                      return (
+                        <div key={i} className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="readout w-44 shrink-0 truncate text-[11px]">
+                              {b.messageType ?? "(resolver)"}
+                            </span>
+                            <span className="chip w-14 justify-center">{b.transport}</span>
+                            <Input
+                              className="readout h-7 flex-1 text-[12px]"
+                              placeholder={copy.placeholder}
+                              value={channelOverrides[i] ?? b.channel.value}
+                              onChange={(e) =>
+                                setChannelOverrides({ ...channelOverrides, [i]: e.target.value })
+                              }
+                            />
+                          </div>
+                          <p className="pl-[2px] text-[10px] leading-snug text-ink-faint">
+                            <span className="text-ink-soft">{copy.role}</span> — {copy.hint}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
