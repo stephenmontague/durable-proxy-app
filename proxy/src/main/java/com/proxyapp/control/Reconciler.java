@@ -56,6 +56,14 @@ public class Reconciler {
     }
 
     public synchronized void apply(ProxyControlState desired) {
+        // Never regress: a stale push (older version than what's live) is dropped. The awaited
+        // workflow loop already serializes reconciles, so this is a defensive guard.
+        if (desired.getVersion() < routingState.appliedVersion()) {
+            log.debug("ignoring stale control state v{} (already applied v{})",
+                    desired.getVersion(), routingState.appliedVersion());
+            return;
+        }
+
         MessageCatalog effectiveCatalog;
         try {
             effectiveCatalog = catalogFor(desired);

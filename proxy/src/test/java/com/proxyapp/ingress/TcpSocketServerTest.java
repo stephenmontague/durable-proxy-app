@@ -167,6 +167,39 @@ class TcpSocketServerTest {
         assertThat(received).containsExactly("old", "new");
     }
 
+    @Test
+    void acceptLoopSurvivesATransientAcceptError() throws IOException {
+        // A transient accept() failure (e.g. fd exhaustion) used to kill the listener silently.
+        TcpSocketServer resilient = new TcpSocketServer(sink, 3_000, 1_500) {
+            private boolean thrownOnce;
+
+            @Override
+            ServerSocket openServerSocket(int p) throws IOException {
+                return new ServerSocket(p) {
+                    @Override
+                    public Socket accept() throws IOException {
+                        if (!thrownOnce) {
+                            thrownOnce = true;
+                            throw new IOException("transient accept glitch");
+                        }
+                        return super.accept();
+                    }
+                };
+            }
+        };
+        resilient.reconcile(mapOf(port, null));
+        try (Socket socket = new Socket("127.0.0.1", port)) {
+            socket.setSoTimeout(3_000);
+            socket.getOutputStream().write("hi".getBytes(StandardCharsets.UTF_8));
+            socket.shutdownOutput();
+            String reply = new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(reply).isEqualTo("ACK ACT-hi\n"); // listener stayed up and served the next connection
+        } finally {
+            resilient.shutdown();
+        }
+        assertThat(received).contains("hi");
+    }
+
     private static Map<Integer, TcpProtocol> mapOf(int port, TcpProtocol protocol) {
         Map<Integer, TcpProtocol> map = new java.util.HashMap<>();
         map.put(port, protocol);

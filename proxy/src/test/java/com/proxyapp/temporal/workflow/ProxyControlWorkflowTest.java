@@ -8,14 +8,19 @@ import com.proxyapp.routing.model.Channel;
 import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.model.RouteBinding;
 import com.proxyapp.routing.model.Transport;
+import com.proxyapp.temporal.activity.ControlActivities;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowOptions;
 import io.temporal.testing.TestWorkflowEnvironment;
+import io.temporal.worker.Worker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -27,11 +32,17 @@ class ProxyControlWorkflowTest {
 
     private TestWorkflowEnvironment env;
     private ProxyControlWorkflow workflow;
+    private RecordingActivities activities;
 
     @BeforeEach
     void setUp() {
         env = TestWorkflowEnvironment.newInstance();
-        env.newWorker(TASK_QUEUE).registerWorkflowImplementationTypes(ProxyControlWorkflowImpl.class);
+        Worker worker = env.newWorker(TASK_QUEUE);
+        worker.registerWorkflowImplementationTypes(ProxyControlWorkflowImpl.class);
+        // The push-based workflow schedules a reconcile activity on every version change; register a
+        // recording stand-in so those pushes complete in-test (the real one runs in the proxy JVM).
+        activities = new RecordingActivities();
+        worker.registerActivitiesImplementations(activities);
         env.start();
 
         ProxyControlState seed = new ProxyControlState();
@@ -88,6 +99,38 @@ class ProxyControlWorkflowTest {
         assertThat(state.getVersion()).isEqualTo(1);
     }
 
+    // ---- the Update contract the cloud relies on: the call returns the resulting state ----
+
+    @Test
+    void acceptedUpdateReturnsStateAndPushesReconcileThatRecordsApplied() {
+        ProxyControlState returned = workflow.applyConfig(List.of(device(6001)));
+        assertThat(returned.getVersion()).isEqualTo(1);   // the Update returns the new state
+        assertThat(returned.getLastError()).isNull();
+
+        env.sleep(Duration.ofSeconds(1));                 // let the pushed reconcile activity run
+        assertThat(activities.lastReconciledVersion).isEqualTo(1);
+        AppliedStatus applied = workflow.getState().getApplied();
+        assertThat(applied).isNotNull();
+        assertThat(applied.version()).isEqualTo(1);       // reconcile activity's return recorded
+    }
+
+    @Test
+    void rejectedUpdateReturnsStateCarryingTheError() {
+        workflow.applyConfig(List.of(device(6001)));                   // v1
+        ProxyControlState returned = workflow.applyConfig(List.of(device(7777))); // reject
+        assertThat(returned.getLastError()).contains("rejected").contains("7777");
+        assertThat(returned.getVersion()).isEqualTo(1);                // unchanged
+    }
+
+    @Test
+    void requestReconcileTriggersAReconcile() {
+        env.sleep(Duration.ofSeconds(1)); // startup reconcile of the seed
+        int before = activities.reconcileCount.get();
+        workflow.requestReconcile();
+        env.sleep(Duration.ofSeconds(1));
+        assertThat(activities.reconcileCount.get()).isGreaterThan(before);
+    }
+
     @Test
     void upsertAndRemoveDevice() {
         workflow.applyConfig(List.of(device(6001)));
@@ -122,10 +165,23 @@ class ProxyControlWorkflowTest {
     }
 
     @Test
-    void appliedReportIsReflectedInState() {
-        workflow.reportApplied(new AppliedStatus(3, true, List.of("/command-result"),
+    void lifecycleCommandIsPushedToTheProxy() {
+        workflow.requestRestart();
+        env.sleep(Duration.ofSeconds(1)); // let the deliverLifecycle activity run
+        assertThat(activities.lifecycleDeliveries).contains(ProxyControlState.LIFECYCLE_RESTART);
+    }
+
+    @Test
+    void appliedReportReturnsDesiredVersionWithoutBumpingAndIsReflectedInState() {
+        env.sleep(Duration.ofSeconds(1)); // let the startup reconcile settle first
+        long versionBefore = workflow.getState().getVersion();
+
+        long desired = workflow.reportApplied(new AppliedStatus(3, true, List.of("/command-result"),
                 List.of(6001), List.of("report-uploads"),
                 "2026-06-11T12:00:00Z", "2026-06-11T12:00:05Z", true));
+        assertThat(desired).isEqualTo(versionBefore);                       // returns desired version
+        assertThat(workflow.getState().getVersion()).isEqualTo(versionBefore); // applied report doesn't bump
+
         AppliedStatus applied = workflow.getState().getApplied();
         assertThat(applied).isNotNull();
         assertThat(applied.version()).isEqualTo(3);
@@ -135,7 +191,7 @@ class ProxyControlWorkflowTest {
 
     @Test
     void tcpProtocolSurvivesTheJacksonRoundTrip() {
-        // Through signal payload -> workflow state -> query result; guards against the
+        // Through update payload -> workflow state -> query result; guards against the
         // phantom-property hazard on record helper accessors.
         com.proxyapp.routing.model.TcpProtocol mllp = new com.proxyapp.routing.model.TcpProtocol(
                 "<VT>", "<FS><CR>", "<VT>ACK {activityId}<FS><CR>",
@@ -252,5 +308,25 @@ class ProxyControlWorkflowTest {
         return new EdgeConfig("gateway-1", "http://edge:8082", "10.0.0.5", null, null, null, List.of(
                 new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP,
                         Channel.port(inboundPort))));
+    }
+
+    /** Stand-in for the proxy-side activities: records pushes so the test can assert them. */
+    private static final class RecordingActivities implements ControlActivities {
+        final AtomicInteger reconcileCount = new AtomicInteger();
+        volatile long lastReconciledVersion = -1;
+        final List<String> lifecycleDeliveries = new CopyOnWriteArrayList<>();
+
+        @Override
+        public AppliedStatus reconcile(ProxyControlState desired) {
+            reconcileCount.incrementAndGet();
+            lastReconciledVersion = desired.getVersion();
+            return new AppliedStatus(desired.getVersion(), desired.isEnabled(),
+                    List.of(), List.of(), List.of(), "t", "t", false);
+        }
+
+        @Override
+        public void deliverLifecycle(String command, String requestId) {
+            lifecycleDeliveries.add(command);
+        }
     }
 }

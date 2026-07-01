@@ -2,6 +2,7 @@ package com.proxyapp.ingress;
 
 import com.proxyapp.config.ProxyProperties;
 import com.proxyapp.routing.model.Transport;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.apache.ftpserver.FtpServer;
 import org.apache.ftpserver.FtpServerFactory;
@@ -23,6 +24,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * FTP ingress: an embedded drop-server whose folders are the channels. The edge target
@@ -35,15 +39,45 @@ import java.util.concurrent.CopyOnWriteArraySet;
 public class FtpIngressListener {
 
     private static final Logger log = LoggerFactory.getLogger(FtpIngressListener.class);
+    /** How often to check that the embedded server is still up while folders are bound. */
+    private static final long HEALTH_INTERVAL_MS = 5_000;
 
     private final InboundGateway gateway;
     private final ProxyProperties properties;
     private final Set<String> watchedFolders = new CopyOnWriteArraySet<>();
+    private final ScheduledExecutorService supervisor =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "ftp-ingress-supervisor");
+                t.setDaemon(true);
+                return t;
+            });
     private FtpServer server;
 
     public FtpIngressListener(InboundGateway gateway, ProxyProperties properties) {
         this.gateway = gateway;
         this.properties = properties;
+    }
+
+    @PostConstruct
+    public void startSupervisor() {
+        // Restart the embedded server if it dies while folders are bound — without a control poll
+        // nothing else would notice. Reconcile-driven start/stop still wins (both synchronize on this).
+        supervisor.scheduleWithFixedDelay(this::superviseServer,
+                HEALTH_INTERVAL_MS, HEALTH_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private synchronized void superviseServer() {
+        if (watchedFolders.isEmpty() || (server != null && !server.isStopped())) {
+            return;
+        }
+        log.warn("FTP ingress server is down but {} folder(s) are bound — restarting",
+                watchedFolders.size());
+        try {
+            startServerIfNeeded();
+            sweepExisting();
+        } catch (Exception e) {
+            log.error("FTP ingress supervised restart failed", e);
+        }
     }
 
     public synchronized void reconcile(Set<String> desiredFolders) {
@@ -171,6 +205,7 @@ public class FtpIngressListener {
 
     @PreDestroy
     public void shutdown() {
+        supervisor.shutdownNow();
         stopServer();
     }
 }

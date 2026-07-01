@@ -23,8 +23,6 @@ import java.util.Map;
 public class ConfigStateService {
 
     private static final Logger log = LoggerFactory.getLogger(ConfigStateService.class);
-    private static final int CONFIRM_ATTEMPTS = 10;
-    private static final long CONFIRM_INTERVAL_MS = 300;
 
     private final WorkflowClient workflowClient;
     private final CloudProperties properties;
@@ -46,36 +44,28 @@ public class ConfigStateService {
     }
 
     /**
-     * Signal the control workflow, wait for the workflow to accept or reject (version bump vs
-     * lastError — see ProxyControlWorkflowImpl), and persist to H2 only on accept. Returns
-     * {@code {accepted, version}} or {@code {accepted:false, message}} for the UI.
+     * Send the change as a Workflow <b>Update</b>: the workflow validates, mutates, and returns the
+     * resulting state synchronously (one Action, no confirmation Query poll). The returned
+     * {@code lastError} is the outcome — null means accepted (persist to H2), non-null means
+     * rejected. Returns {@code {accepted, version}} or {@code {accepted:false, message}} for the UI.
      */
-    public Map<String, Object> applyChange(String signalName, Object arg) {
-        JsonNode before = queryState();
-        long beforeVersion = before.path("version").asLong(-1);
-        String beforeError = textOrNull(before, "lastError");
-
-        WorkflowStub stub = controlStub();
-        if (arg != null) {
-            stub.signal(signalName, arg);
-        } else {
-            stub.signal(signalName);
-        }
-
-        for (int attempt = 0; attempt < CONFIRM_ATTEMPTS; attempt++) {
-            sleep(CONFIRM_INTERVAL_MS);
-            JsonNode after = queryState();
+    public Map<String, Object> applyChange(String updateName, Object arg) {
+        try {
+            WorkflowStub stub = controlStub();
+            JsonNode after = (arg != null)
+                    ? stub.update(updateName, JsonNode.class, arg)
+                    : stub.update(updateName, JsonNode.class);
             long version = after.path("version").asLong(-1);
-            if (version > beforeVersion) {
+            String error = textOrNull(after, "lastError");
+            if (error == null) {
                 persist(after, version);
                 return result(true, version, null);
             }
-            String error = textOrNull(after, "lastError");
-            if (error != null && !error.equals(beforeError)) {
-                return result(false, beforeVersion, error);
-            }
+            return result(false, version, error);
+        } catch (Exception e) {
+            log.warn("control update '{}' failed: {}", updateName, e.getMessage());
+            return result(false, -1, "control workflow unavailable: " + e.getMessage());
         }
-        return result(false, beforeVersion, "no response from control workflow (timed out)");
     }
 
     /** One-time: seed H2 from the workflow's current state if we have no row yet for this namespace. */
@@ -142,13 +132,5 @@ public class ConfigStateService {
         s.set("catalogEntries", mapper.createArrayNode());
         s.set("typeDirections", mapper.createObjectNode());
         return s;
-    }
-
-    private static void sleep(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 }
