@@ -7,6 +7,10 @@ import com.proxyapp.control.model.ProxyControlState;
 import com.proxyapp.routing.ConfigValidator;
 import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.model.RouteBinding;
+import com.proxyapp.temporal.activity.ControlActivities;
+import io.temporal.activity.ActivityOptions;
+import io.temporal.common.RetryOptions;
+import io.temporal.failure.ActivityFailure;
 import io.temporal.spring.boot.WorkflowImpl;
 import io.temporal.workflow.Workflow;
 import io.temporal.workflow.WorkflowInit;
@@ -20,124 +24,177 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * Push-based control plane. The workflow holds desired state; config Updates mutate it and bump
+ * {@code version}; the run loop wakes on a version change (or a manual/boot {@code requestReconcile},
+ * or a lifecycle command) and pushes the work to the proxy as an <b>activity</b> — reconcile applies
+ * config, deliverLifecycle hands a restart/shutdown to the proxy (which exits out-of-band). Between
+ * events the loop parks on a no-timeout {@link Workflow#await} (zero Actions), and continues-as-new
+ * only when the server suggests it via {@link io.temporal.workflow.WorkflowInfo#isContinueAsNewSuggested()}.
+ */
 @WorkflowImpl(taskQueues = "${proxy.control-task-queue}")
 public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
 
-    /** Continue-as-new after this many accepted/rejected changes, or daily, to bound history. */
-    private static final int MAX_CHANGES_PER_RUN = 500;
-    private static final Duration MAX_RUN_DURATION = Duration.ofHours(24);
-
     private static final Logger log = Workflow.getLogger(ProxyControlWorkflowImpl.class);
 
+    /**
+     * Reconcile must converge, so it retries forever (it is idempotent; a validation mismatch only
+     * logs and returns, it does not throw). Lifecycle delivery is attempt-once: the proxy acks
+     * durably before it exits, so an automatic retry could otherwise re-trigger an exit loop.
+     */
+    private final ControlActivities activities = Workflow.newActivityStub(
+            ControlActivities.class,
+            ActivityOptions.newBuilder()
+                    .setStartToCloseTimeout(Duration.ofSeconds(30))
+                    .setRetryOptions(RetryOptions.newBuilder().setMaximumAttempts(0).build())
+                    .build(),
+            Map.of("DeliverLifecycle", ActivityOptions.newBuilder()
+                    .setStartToCloseTimeout(Duration.ofSeconds(15))
+                    .setRetryOptions(RetryOptions.newBuilder().setMaximumAttempts(1).build())
+                    .build()));
+
     private final ProxyControlState state;
-    private int changes;
+
+    /** Last desired version the proxy has been asked to apply; -1 forces a reconcile on (re)start. */
+    private long reconciledVersion = -1;
+    /** A manual/boot/self-heal reconcile request, independent of a version change. */
+    private boolean reconcileRequested;
+    /** Lifecycle requestId we have already attempted to deliver — deliver each command once. */
+    private String deliveredLifecycle = "";
 
     @WorkflowInit
     public ProxyControlWorkflowImpl(ProxyControlState initialState) {
-        // Initialized in the constructor so signals delivered before run() see valid state.
+        // Initialized in the constructor so signals/updates delivered before run() see valid state.
         this.state = initialState != null ? initialState : new ProxyControlState();
     }
 
     @Override
     public void run(ProxyControlState initialState) {
-        Workflow.await(MAX_RUN_DURATION, () -> changes >= MAX_CHANGES_PER_RUN);
-        Workflow.continueAsNew(state);
+        while (true) {
+            Workflow.await(() -> state.getVersion() != reconciledVersion
+                    || lifecyclePending()
+                    || reconcileRequested);
+
+            if (lifecyclePending()) {
+                // Deliver once; the proxy acks (clearing the command) and exits OUTSIDE the activity.
+                // Tracked by requestId so a proxy that can't be reached doesn't spin the loop.
+                deliveredLifecycle = state.getLifecycleRequestId();
+                try {
+                    activities.deliverLifecycle(state.getLifecycleCommand(), state.getLifecycleRequestId());
+                } catch (ActivityFailure e) {
+                    log.warn("lifecycle '{}' delivery failed (proxy unreachable?): {}",
+                            state.getLifecycleCommand(), e.getMessage());
+                }
+            }
+
+            if (state.getVersion() != reconciledVersion || reconcileRequested) {
+                reconcileRequested = false;
+                long target = state.getVersion();
+                // Pass desired state as the activity input (durable snapshot); the proxy applies it
+                // and returns what it actually has running, which we record for the cloud to read.
+                state.setApplied(activities.reconcile(state));
+                reconciledVersion = target;
+            }
+
+            if (Workflow.getInfo().isContinueAsNewSuggested()) {
+                Workflow.continueAsNew(state);
+            }
+        }
+    }
+
+    /** A restart/shutdown that hasn't yet been handed to the proxy this run. */
+    private boolean lifecyclePending() {
+        return !ProxyControlState.LIFECYCLE_NONE.equals(state.getLifecycleCommand())
+                && state.getLifecycleRequestId() != null
+                && !state.getLifecycleRequestId().equals(deliveredLifecycle);
     }
 
     @Override
-    public void enable() {
+    public ProxyControlState enable() {
         state.setEnabled(true);
-        accept("enable");
+        return accept("enable");
     }
 
     @Override
-    public void disable() {
+    public ProxyControlState disable() {
         state.setEnabled(false);
-        accept("disable");
+        return accept("disable");
     }
 
     @Override
-    public void applyConfig(List<EdgeConfig> devices) {
+    public ProxyControlState applyConfig(List<EdgeConfig> devices) {
         List<String> errors = ConfigValidator.validate(
                 state.getTypeDirections(), state.getTcpPortPool(), devices);
         if (!errors.isEmpty()) {
-            reject("applyConfig", errors);
-            return;
+            return reject("applyConfig", errors);
         }
         state.setDevices(new ArrayList<>(devices));
-        accept("applyConfig");
+        return accept("applyConfig");
     }
 
     @Override
-    public void upsertDevice(EdgeConfig device) {
+    public ProxyControlState upsertDevice(EdgeConfig device) {
         List<EdgeConfig> proposed = new ArrayList<>(state.getDevices());
         proposed.removeIf(d -> d.deviceId() != null && d.deviceId().equals(device.deviceId()));
         proposed.add(device);
         List<String> errors = ConfigValidator.validate(
                 state.getTypeDirections(), state.getTcpPortPool(), proposed);
         if (!errors.isEmpty()) {
-            reject("upsertDevice", errors);
-            return;
+            return reject("upsertDevice", errors);
         }
         state.setDevices(proposed);
-        accept("upsertDevice");
+        return accept("upsertDevice");
     }
 
     @Override
-    public void removeDevice(String deviceId) {
+    public ProxyControlState removeDevice(String deviceId) {
         List<EdgeConfig> proposed = new ArrayList<>(state.getDevices());
         boolean removed = proposed.removeIf(d -> deviceId.equals(d.deviceId()));
         if (!removed) {
-            reject("removeDevice", List.of("no device with id " + deviceId));
-            return;
+            return reject("removeDevice", List.of("no device with id " + deviceId));
         }
         state.setDevices(proposed);
-        accept("removeDevice");
+        return accept("removeDevice");
     }
 
     @Override
-    public void upsertMessageType(CatalogEntryDto entry) {
+    public ProxyControlState upsertMessageType(CatalogEntryDto entry) {
         List<String> errors = CatalogValidator.validateEntry(entry, CatalogValidator.KNOWN_CODECS);
         if (!errors.isEmpty()) {
-            reject("upsertMessageType", errors);
-            return;
+            return reject("upsertMessageType", errors);
         }
         List<CatalogEntryDto> proposed = new ArrayList<>(currentCatalog());
         proposed.removeIf(e -> e.type().equals(entry.type()));
         proposed.add(entry);
         setCatalog(proposed);
-        accept("upsertMessageType");
+        return accept("upsertMessageType");
     }
 
     @Override
-    public void removeMessageType(String typeName) {
+    public ProxyControlState removeMessageType(String typeName) {
         if (typeName == null || typeName.isBlank()) {
-            reject("removeMessageType", List.of("message type name must not be blank"));
-            return;
+            return reject("removeMessageType", List.of("message type name must not be blank"));
         }
         List<CatalogEntryDto> proposed = new ArrayList<>(currentCatalog());
         boolean present = proposed.stream().anyMatch(e -> typeName.equals(e.type()));
         if (!present) {
-            reject("removeMessageType", List.of("no message type named " + typeName));
-            return;
+            return reject("removeMessageType", List.of("no message type named " + typeName));
         }
         List<String> users = devicesReferencing(typeName);
         if (!users.isEmpty()) {
-            reject("removeMessageType", List.of("message type " + typeName
+            return reject("removeMessageType", List.of("message type " + typeName
                     + " is referenced by device(s): " + String.join(", ", users)));
-            return;
         }
         proposed.removeIf(e -> typeName.equals(e.type()));
         setCatalog(proposed);
-        accept("removeMessageType");
+        return accept("removeMessageType");
     }
 
     @Override
-    public void importCatalog(List<CatalogEntryDto> entries) {
+    public ProxyControlState importCatalog(List<CatalogEntryDto> entries) {
         List<String> errors = CatalogValidator.validateCatalog(entries, CatalogValidator.KNOWN_CODECS);
         if (!errors.isEmpty()) {
-            reject("importCatalog", errors);
-            return;
+            return reject("importCatalog", errors);
         }
         Set<String> newTypes = entries.stream().map(CatalogEntryDto::type)
                 .collect(Collectors.toSet());
@@ -151,12 +208,17 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
             }
         }
         if (!orphaned.isEmpty()) {
-            reject("importCatalog", List.of("catalog import would orphan device binding(s): "
+            return reject("importCatalog", List.of("catalog import would orphan device binding(s): "
                     + String.join(", ", orphaned)));
-            return;
         }
         setCatalog(new ArrayList<>(entries));
-        accept("importCatalog");
+        return accept("importCatalog");
+    }
+
+    @Override
+    public void requestReconcile() {
+        reconcileRequested = true;
+        log.info("reconcile requested (manual/boot/self-heal)");
     }
 
     @Override
@@ -177,13 +239,14 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
         log.info("lifecycle command '{}' acknowledged by proxy", state.getLifecycleCommand());
         state.setLifecycleCommand(ProxyControlState.LIFECYCLE_NONE);
         state.setLifecycleRequestId(null);
-        changes++;
     }
 
     @Override
-    public void reportApplied(AppliedStatus status) {
+    public long reportApplied(AppliedStatus status) {
+        // Applied state is observability only — record it without bumping version or waking the
+        // reconcile loop. Return desired version so the proxy can detect drift and self-heal.
         state.setApplied(status);
-        changes++;
+        return state.getVersion();
     }
 
     @Override
@@ -194,7 +257,6 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
     private void requestLifecycle(String command) {
         state.setLifecycleCommand(command);
         state.setLifecycleRequestId(Workflow.randomUUID().toString());
-        changes++;
         log.info("lifecycle command '{}' requested ({})", command, state.getLifecycleRequestId());
     }
 
@@ -236,17 +298,17 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
         return users;
     }
 
-    private void accept(String change) {
+    private ProxyControlState accept(String change) {
         state.setVersion(state.getVersion() + 1);
         state.setLastError(null);
-        changes++;
         log.info("control change '{}' accepted, version now {}", change, state.getVersion());
+        return state;
     }
 
-    private void reject(String change, List<String> errors) {
-        // Rejected changes never go live; the reason is surfaced on the queryable state.
+    private ProxyControlState reject(String change, List<String> errors) {
+        // Rejected changes never go live; the reason rides the returned state's lastError.
         state.setLastError(change + " rejected: " + String.join("; ", errors));
-        changes++;
         log.warn("control change '{}' rejected: {}", change, errors);
+        return state;
     }
 }

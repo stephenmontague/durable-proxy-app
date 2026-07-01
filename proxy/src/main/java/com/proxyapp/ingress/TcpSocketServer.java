@@ -115,7 +115,7 @@ public class TcpSocketServer {
 
     private Listener openListener(int port, TcpProtocol protocol) {
         try {
-            ServerSocket serverSocket = new ServerSocket(port);
+            ServerSocket serverSocket = openServerSocket(port);
             Listener listener = new Listener(serverSocket, new AtomicReference<>(protocol));
             executor.execute(() -> acceptLoop(listener, port));
             log.info("TCP ingress listening on port {} ({})", port,
@@ -125,6 +125,11 @@ public class TcpSocketServer {
             log.error("cannot open TCP ingress port {}: {}", port, e.getMessage());
             return null;
         }
+    }
+
+    /** Test seam: lets a test inject a ServerSocket whose accept() simulates a transient error. */
+    ServerSocket openServerSocket(int port) throws IOException {
+        return new ServerSocket(port);
     }
 
     private void closeListener(int port) {
@@ -147,11 +152,23 @@ public class TcpSocketServer {
                 TcpProtocol snapshot = listener.protocol().get(); // fixed for this connection
                 executor.execute(() -> handleConnection(socket, port, snapshot));
             } catch (IOException e) {
-                if (!serverSocket.isClosed()) {
-                    log.warn("accept failed on TCP port {}: {}", port, e.getMessage());
+                if (serverSocket.isClosed()) {
+                    break; // closed by closeListener — normal shutdown
                 }
-                return;
+                // Transient accept error (e.g. fd exhaustion, peer reset during accept): keep the
+                // listener alive — returning here would silently stop ingress with version unchanged.
+                log.warn("accept failed on TCP port {}: {} — keeping listener up", port, e.getMessage());
+                sleepBackoff();
             }
+        }
+    }
+
+    /** Brief pause so a persistent accept error (e.g. fd exhaustion) doesn't hot-spin the loop. */
+    private static void sleepBackoff() {
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
