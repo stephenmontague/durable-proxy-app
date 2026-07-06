@@ -39,9 +39,14 @@ public record EdgeProperties(Proxy proxy, int tcpListenPort, int ftpListenPort, 
         }
     }
 
-    public record Proxy(String httpBase, String commandResultPath, String tcpHost,
+    public record Proxy(String httpBase, String commandResultPath, String resultPath, String tcpHost,
                         int configAckPort, String ftpHost, int ftpPort, String ftpUser,
                         String ftpPassword, String reportUploadFolder) {
+
+        /** Where the catch-all echoes cloud→edge deliveries back; defaults to the command-result channel. */
+        public String resultPathOrDefault() {
+            return (resultPath == null || resultPath.isBlank()) ? commandResultPath : resultPath;
+        }
     }
 
     /**

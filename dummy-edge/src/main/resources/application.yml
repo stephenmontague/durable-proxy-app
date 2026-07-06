@@ -10,6 +10,8 @@ edge:
   proxy:
     http-base: http://localhost:8090
     command-result-path: /command-result
+    # The /{*path} catch-all echoes cloud→edge deliveries back here; repoint for a custom edge→cloud response type
+    result-path: /command-result
     tcp-host: 127.0.0.1
     config-ack-port: 6001
     ftp-host: 127.0.0.1
