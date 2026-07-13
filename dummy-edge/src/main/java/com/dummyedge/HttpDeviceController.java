@@ -6,10 +6,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -47,6 +49,22 @@ public class HttpDeviceController {
                 : jsonConfirm(body);
         confirmPusher.pushHttpCommandResult(payload);
         return Map.of("status", "accepted");
+    }
+
+    /**
+     * Universal HTTP sink: accept a cloud→edge delivery on ANY path (mirrors the proxy's
+     * {@code /{*path}} ingress), record it for the demo audit, and echo it back to the proxy so a
+     * type defined purely by config round-trips both ways. The exact {@code /commands} mapping wins
+     * for that path — Spring matches exact routes before patterns.
+     */
+    @PostMapping("/{*path}")
+    public Map<String, String> receiveAny(@PathVariable("path") String path,
+                                          @RequestBody(required = false) byte[] body) {
+        String payload = body == null ? "" : new String(body, StandardCharsets.UTF_8);
+        log.info("device received {} bytes on {}", payload.length(), path);
+        receivedStore.add("HTTP", path, payload);
+        confirmPusher.pushHttpEcho(path, payload);
+        return Map.of("status", "accepted", "channel", path);
     }
 
     private String jsonConfirm(JsonNode body) {
