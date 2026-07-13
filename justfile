@@ -1,175 +1,191 @@
-# Cloud <-> Edge Proxy monorepo — build & demo recipes
-# Local dev targets the always-on Docker Temporal at localhost:7233
-# (~/git/temporal/docker-compose.yml — Server 1.31+ with activity.enableStandalone=true,
-# Web UI at http://localhost:8080). `just temporal-dev` is the no-Docker fallback.
-# Requires: just, Java 17+, Maven, Temporal CLI (v1.7.0+).
-#
-# Modules: proxy/ (the connector), dummy-cloud/ + dummy-edge/ (demo harness).
-# All recipes run from the repo root; the aggregator pom builds everything.
+# Cloud <-> Edge Proxy — build & demo recipes.
+# Local dev targets the Docker Temporal at localhost:7233 (Server 1.31+ with
+# activity.enableStandalone=true, Web UI at http://localhost:8080).
+# `just temporal-dev` is the no-Docker fallback. Requires: just, Java 17+, Maven, Temporal CLI.
 
 set shell := ["bash", "-cu"]
 
-# Ports (keep in sync with PLAN.md > Appendix).
-# 809x keeps clear of the Docker Temporal UI (8080) and other local dev stacks.
-proxy_admin_port := "8090"
-cloud_port       := "8091"
-edge_port        := "8092"
-temporal_ui      := "http://localhost:8080"
+cloud_port  := "8091"
+temporal_ui := "http://localhost:8080"
 
 # Show available recipes
 default:
     @just --list
 
 # ---------------------------------------------------------------------------
-# Build & test (reactor: all three modules)
+# One-command demo stack (backgrounds everything to logs/; namespace defaults to demo)
 # ---------------------------------------------------------------------------
 
-# Build everything (proxy + dummies)
+# Start the whole stack on one namespace: Temporal (if needed) + proxy + cloud + edge + UI
+up ns="demo":
+    #!/usr/bin/env bash
+    set -uo pipefail
+    cd "{{justfile_directory()}}"
+    mkdir -p logs
+    for p in 8090 8091 8092 3000; do
+      if lsof -ti:$p >/dev/null 2>&1; then
+        echo "!! port $p already in use — run 'just down' first"; exit 1
+      fi
+    done
+    # Temporal: reuse :7233 if reachable, else start the dev server (standalone activities on).
+    if temporal operator namespace list >/dev/null 2>&1; then
+      echo ">> Temporal already up on :7233"
+    else
+      echo ">> starting Temporal dev server -> logs/temporal.log"
+      nohup temporal server start-dev --dynamic-config-value activity.enableStandalone=true \
+        > logs/temporal.log 2>&1 &
+      echo $! > logs/temporal.pid
+      disown
+      for i in $(seq 1 30); do temporal operator namespace list >/dev/null 2>&1 && break; sleep 1; done
+    fi
+    # Ensure the namespace exists (idempotent) and point the UI + cloud at it.
+    temporal operator namespace create --namespace {{ns}} --retention 24h >/dev/null 2>&1 || true
+    printf 'TEMPORAL_NAMESPACE=%s\nDUMMY_CLOUD_URL=http://localhost:8091\n' {{ns}} > management-ui/.env.local
+    echo ">> building (proxy + cloud + edge) ..."
+    mvn -q -DskipTests package
+    [ -d management-ui/node_modules ] || (cd management-ui && npm install >/dev/null 2>&1)
+    echo ">> starting proxy (managed, {{ns}}) -> logs/proxy.log"
+    PROXY_SUPERVISED=true nohup ./scripts/proxy-supervisor.sh --spring.temporal.namespace={{ns}} > logs/proxy.log 2>&1 &
+    disown
+    echo ">> starting cloud ({{ns}}, :8091) -> logs/cloud.log"
+    nohup mvn -q -pl dummy-cloud spring-boot:run -Dspring-boot.run.profiles=local \
+      -Dspring-boot.run.arguments="--server.port=8091 --cloud.temporal.namespace={{ns}} --spring.datasource.url=jdbc:h2:file:./data/cloud-{{ns}}" \
+      > logs/cloud.log 2>&1 &
+    disown
+    echo ">> starting edge (:8092) -> logs/edge.log"
+    nohup mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local > logs/edge.log 2>&1 &
+    disown
+    echo ">> starting UI (:3000) -> logs/ui.log"
+    (cd management-ui && nohup npm run dev > ../logs/ui.log 2>&1 &)
+    echo ">> waiting for cloud + UI to answer ..."
+    for i in $(seq 1 45); do
+      curl -fsS -o /dev/null localhost:8091/control/state 2>/dev/null && \
+        curl -fsS -o /dev/null localhost:3000 2>/dev/null && break
+      sleep 2
+    done
+    echo ""
+    echo ">> stack up on namespace '{{ns}}':"
+    echo ">>   UI          http://localhost:3000"
+    echo ">>   Cloud API   http://localhost:8091"
+    echo ">>   Temporal UI http://localhost:8080  (dev-server fallback: http://localhost:8233)"
+    echo ">> tail a log: just logs <temporal|proxy|cloud|edge|ui>   ·   stop all: just down"
+
+# Stop everything started by 'just up'
+down:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    cd "{{justfile_directory()}}"
+    echo ">> stopping proxy / cloud / edge / UI ..."
+    for p in 8090 8091 8092 3000; do
+      pids=$(lsof -ti:$p 2>/dev/null || true)
+      [ -n "$pids" ] && kill $pids 2>/dev/null || true
+    done
+    pkill -f proxy-supervisor.sh 2>/dev/null || true
+    pkill -f 'spring-boot:run' 2>/dev/null || true
+    if [ -f logs/temporal.pid ]; then
+      echo ">> stopping the Temporal dev server we started ..."
+      kill "$(cat logs/temporal.pid)" 2>/dev/null || true
+      pkill -f 'temporal server start-dev' 2>/dev/null || true
+      rm -f logs/temporal.pid
+    fi
+    echo ">> done."
+
+# Tail a service log, e.g. just logs proxy
+logs name:
+    tail -F logs/{{name}}.log
+
+# Restart ONE service (rebuilds from source, picks up code changes), leaving the rest up.
+# e.g. just restart edge   ·   proxy also restarts via the UI's Restart button.
+restart name ns="demo":
+    #!/usr/bin/env bash
+    set -uo pipefail
+    cd "{{justfile_directory()}}"
+    mkdir -p logs
+    kill_port() { local pids; pids=$(lsof -ti:"$1" 2>/dev/null || true); [ -n "$pids" ] && kill $pids 2>/dev/null || true; }
+    case "{{name}}" in
+      proxy)
+        kill_port 8090; pkill -f proxy-supervisor.sh 2>/dev/null || true; sleep 1
+        echo ">> rebuilding + restarting proxy on {{ns}} ..."
+        mvn -q -pl proxy package -DskipTests
+        PROXY_SUPERVISED=true nohup ./scripts/proxy-supervisor.sh --spring.temporal.namespace={{ns}} > logs/proxy.log 2>&1 &
+        disown ;;
+      cloud)
+        kill_port 8091; sleep 1
+        echo ">> restarting cloud on {{ns}} ..."
+        nohup mvn -q -pl dummy-cloud spring-boot:run -Dspring-boot.run.profiles=local -Dspring-boot.run.arguments="--server.port=8091 --cloud.temporal.namespace={{ns}} --spring.datasource.url=jdbc:h2:file:./data/cloud-{{ns}}" > logs/cloud.log 2>&1 &
+        disown ;;
+      edge)
+        kill_port 8092; sleep 1
+        echo ">> restarting edge ..."
+        nohup mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local > logs/edge.log 2>&1 &
+        disown ;;
+      ui)
+        kill_port 3000; sleep 1
+        echo ">> restarting UI ..."
+        ( cd management-ui && nohup npm run dev > ../logs/ui.log 2>&1 & ) ;;
+      *)
+        echo "usage: just restart <proxy|cloud|edge|ui> [ns]"; exit 1 ;;
+    esac
+    echo ">> {{name}} restarting — tail with: just logs {{name}}"
+
+# ---------------------------------------------------------------------------
+# Build & test
+# ---------------------------------------------------------------------------
+
+# Build everything (proxy + dummy cloud/edge)
 build:
     mvn -q clean package
 
-# Run unit tests (routing core, codecs, validators, control workflow)
+# Run the Java unit tests
 test:
     mvn -q test
 
-# Run the management UI's unit tests (WireString/validator parity with the Java side)
+# Run the management UI unit tests (WireString/validator parity with Java)
 test-ui:
     @[ -d management-ui/node_modules ] || (cd management-ui && npm install)
     cd management-ui && npm test
 
-# Compile without packaging
-compile:
-    mvn -q compile
-
-# Remove build output
-clean:
-    mvn -q clean
-
-# ---------------------------------------------------------------------------
-# Local Temporal
-# ---------------------------------------------------------------------------
-
-# Verify the local Temporal server (Docker, localhost:7233) is up and standalone-activity
-# capable: needs Server 1.31+ and the activity.enableStandalone dynamic config flag.
-temporal-check:
-    @temporal operator cluster system | head -2
-    @temporal activity start --type HealthCheck --activity-id just-temporal-check \
-        --task-queue temporal-check-q --start-to-close-timeout 1s \
-        --schedule-to-close-timeout 2s --input '"ping"' > /dev/null \
-        && echo "OK: standalone activities are enabled"
-
-# Fallback when the Docker stack isn't running: a CLI dev server on the same port with
-# the standalone-activity flag enabled (Web UI at http://localhost:8233 in this case).
-temporal-dev:
-    temporal server start-dev \
-        --dynamic-config-value activity.enableStandalone=true
-
-# Quick health check against the local server
-temporal-status:
-    temporal operator namespace list
-
-# ---------------------------------------------------------------------------
-# Run the components (each in its own terminal, from the repo root)
-# ---------------------------------------------------------------------------
-
-# Run the proxy against the local dev server (Spring profile: local)
-run-proxy:
-    mvn -q -pl proxy spring-boot:run -Dspring-boot.run.profiles=local
-
-# Run the proxy under a restart-on-exit supervisor. Required for the management UI's
-# RESTART button: the proxy exits with code 10 and the wrapper relaunches it.
-run-proxy-managed:
-    mvn -q -pl proxy package -DskipTests
-    ./scripts/proxy-supervisor.sh
-
-# Run the dummy cloud app
-run-dummy-cloud:
-    mvn -q -pl dummy-cloud spring-boot:run -Dspring-boot.run.profiles=local
-
-# Run the dummy edge target
-run-dummy-edge:
-    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local
-
-# Run the dummy edge speaking MLLP-style framed TCP (<VT>...<FS><CR>, framed acks).
-# Pair with: just demo-apply-config config/framed-routes.json
-run-dummy-edge-framed:
-    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,framed
-
-# Run the dummy edge speaking XML instead of JSON. Pair with: just demo-command-http-xml
-run-dummy-edge-xml:
-    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,xml
-
-# Run the dummy edge as a persistent-session device (listens on 9100; the proxy dials in and
-# keeps the socket warm with PING/PONG heartbeats). Pair with: just demo-config-persistent
-run-dummy-edge-persistent:
-    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,persistent
-
-# ---------------------------------------------------------------------------
-# Multi-sandbox demo: the SAME binaries installed twice, bent to two different clients
-# purely by config (full runbook: docs/multi-sandbox-demo.md).
-#   A = warehouse   CSV / STX-ETX / 10s   · ns sandbox-a · proxy 8090 cloud 8091 edge 8092 UI 3000
-#   B = smart-grid  XML / <start>-end / 30s · ns sandbox-b · proxy 8190 cloud 8191 edge 8192 UI 3001
-# ---------------------------------------------------------------------------
-
-# Create the two Temporal namespaces (safe to re-run; ignores "already exists")
-sandbox-namespaces:
-    -temporal operator namespace create --namespace sandbox-a --retention 24h 2>/dev/null || true
-    -temporal operator namespace create --namespace sandbox-b --retention 24h 2>/dev/null || true
-    @temporal operator namespace list | grep -E "Name:.*sandbox-[ab]" || echo "(check: namespaces sandbox-a / sandbox-b)"
-
-# Proxy for a sandbox — same jar, different namespace + port. Flips on the heartbeat trace
-# (logging.level.heartbeat=INFO) so the terminal shows the link breathing. e.g. just run-proxy-ns sandbox-a 8090
-run-proxy-ns ns port:
-    mvn -q -pl proxy spring-boot:run -Dspring-boot.run.profiles=local \
-        -Dspring-boot.run.arguments="--server.port={{port}} --spring.temporal.namespace={{ns}} --logging.level.heartbeat=INFO"
-
-# Dummy cloud for a sandbox. e.g. just run-cloud-ns sandbox-a 8091
-# NOTE: dummy-cloud has its own Temporal client (not the Spring starter), so its namespace key is
-# `cloud.temporal.namespace` — NOT `spring.temporal.namespace` (that's the proxy's). Using the wrong
-# one leaves the cloud on the `default` namespace and every /control/* call 500s (WorkflowNotFound).
-run-cloud-ns ns port:
-    mvn -q -pl dummy-cloud spring-boot:run -Dspring-boot.run.profiles=local \
-        -Dspring-boot.run.arguments="--server.port={{port}} --cloud.temporal.namespace={{ns}} --spring.datasource.url=jdbc:h2:file:./data/cloud-{{ns}}"
-
-# Dummy edge for each sandbox (framing + telemetry baked into the Spring profile)
-run-dummy-edge-sandbox-a:
-    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,sandbox-a
-run-dummy-edge-sandbox-b:
-    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,sandbox-b
-
-# Management UI for a sandbox (uses `next start`, so two can run at once — run `just build-ui` first).
-# e.g. just run-ui-ns sandbox-a 3000
-# NOTE: Next 16's `next start` does NOT forward command-line env vars (TEMPORAL_NAMESPACE=... npx ...)
-# to its server worker — only `.env*` files reach it. So we write the namespace into .env.local, which
-# each `next start` reads at its own startup. Bring sandboxes up SEQUENTIALLY (A fully, then B): each
-# worker captures .env.local when it boots, so the shared file is fine for the documented flow.
-run-ui-ns ns port cloud_port:
-    cd management-ui && printf 'TEMPORAL_NAMESPACE=%s\nDUMMY_CLOUD_URL=http://localhost:%s\n' {{ns}} {{cloud_port}} > .env.local && exec npx next start -p {{port}}
-
-# Apply a sandbox's config to its cloud: clears the seeded device, imports the catalog, applies the
-# device. e.g. just sandbox-apply sandbox-a 8091
-sandbox-apply name cloud_port:
-    -curl -fsS -X POST localhost:{{cloud_port}}/control/remove-device/edge-gateway-01 > /dev/null 2>&1 || true
-    curl -fsS -X POST localhost:{{cloud_port}}/control/import-catalog \
-        -H 'content-type: application/json' --data-binary @config/{{name}}-catalog.json | jq -c '.state.typeDirections'
-    curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
-        -H 'content-type: application/json' --data-binary @config/{{name}}-routes.json | jq -c '[.state.devices[].deviceId]'
-
-# Run the management UI (Next.js dev server on http://localhost:3000)
-run-ui:
-    @[ -d management-ui/node_modules ] || (cd management-ui && npm install)
-    cd management-ui && npm run dev
-
-# Production build of the management UI
+# Production build of the management UI (needed before run-ui-ns)
 build-ui:
     @[ -d management-ui/node_modules ] || (cd management-ui && npm install)
     cd management-ui && npm run build
 
 # ---------------------------------------------------------------------------
-# Demo (assumes: Temporal on 7233, run-proxy, run-dummy-cloud, run-dummy-edge are up)
+# Run the stack (each in its own terminal; Temporal must be up first)
 # ---------------------------------------------------------------------------
 
-# End-to-end HTTP round trip: DEVICE_COMMAND (cloud->edge) then COMMAND_RESULT (edge->cloud)
+# Start a local Temporal dev server with standalone activities (no Docker; UI at :8233)
+temporal-dev:
+    temporal server start-dev \
+        --dynamic-config-value activity.enableStandalone=true
+
+# Run the proxy (Spring profile: local)
+run-proxy:
+    mvn -q -pl proxy spring-boot:run -Dspring-boot.run.profiles=local
+
+# Run the proxy under a restart-on-exit supervisor (needed for the UI's Restart button); optional namespace
+run-proxy-managed ns="default":
+    mvn -q -pl proxy package -DskipTests
+    ./scripts/proxy-supervisor.sh --spring.temporal.namespace={{ns}}
+
+# Run the dummy cloud app
+run-dummy-cloud:
+    mvn -q -pl dummy-cloud spring-boot:run -Dspring-boot.run.profiles=local
+
+# Run the dummy edge device
+run-dummy-edge:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local
+
+# Run the management UI (http://localhost:3000)
+run-ui:
+    @[ -d management-ui/node_modules ] || (cd management-ui && npm install)
+    cd management-ui && npm run dev
+
+# ---------------------------------------------------------------------------
+# Demos (proxy + cloud + edge + UI up; drive from another terminal)
+# ---------------------------------------------------------------------------
+
+# HTTP round trip: DEVICE_COMMAND (cloud->edge) then COMMAND_RESULT (edge->cloud)
 demo-command:
     @echo ">> Triggering DEVICE_COMMAND via dummy-cloud ..."
     curl -fsS -X POST localhost:{{cloud_port}}/demo/command \
@@ -180,8 +196,7 @@ demo-command:
     @echo ">> Check dummy-cloud received the COMMAND_RESULT:"
     curl -fsS localhost:{{cloud_port}}/demo/confirms | jq .
 
-# TCP round trip: CONFIG_UPDATE (cloud->edge, device port 9001) then
-# CONFIG_ACK (edge->cloud, proxy port 6001)
+# TCP round trip: CONFIG_UPDATE (cloud->edge) then CONFIG_ACK (edge->cloud)
 demo-config-tcp:
     @echo ">> Triggering CONFIG_UPDATE via dummy-cloud ..."
     curl -fsS -X POST localhost:{{cloud_port}}/demo/config \
@@ -191,8 +206,7 @@ demo-config-tcp:
     @echo ">> Check dummy-cloud received the CONFIG_ACK:"
     curl -fsS localhost:{{cloud_port}}/demo/confirms | jq .
 
-# FTP round trip: REPORT_REQUEST (cloud->edge, device folder report-requests) then
-# REPORT_UPLOAD (edge->cloud, proxy folder report-uploads)
+# FTP round trip: REPORT_REQUEST (cloud->edge) then REPORT_UPLOAD (edge->cloud)
 demo-report-ftp:
     @echo ">> Triggering REPORT_REQUEST via dummy-cloud ..."
     curl -fsS -X POST localhost:{{cloud_port}}/demo/report \
@@ -202,39 +216,38 @@ demo-report-ftp:
     @echo ">> Check dummy-cloud received the REPORT_UPLOAD:"
     curl -fsS localhost:{{cloud_port}}/demo/confirms | jq .
 
-# Remotely DISABLE this install via the control workflow (soft off)
-demo-disable:
-    curl -fsS -X POST localhost:{{cloud_port}}/control/disable | jq .
-
-# Remotely ENABLE this install via the control workflow
-demo-enable:
-    curl -fsS -X POST localhost:{{cloud_port}}/control/enable | jq .
-
-# Push a routing config update (hot reload, no restart)
+# Hot-apply a routing config (no restart)
 demo-apply-config file="config/sample-routes.json":
     curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
         -H 'content-type: application/json' \
         --data-binary @{{file}} | jq .
 
-# TCP round trip over a CUSTOM wire protocol (MLLP-style framing + framed acks).
-# Requires dummy-edge running with the framed profile: just run-dummy-edge-framed
-demo-config-tcp-framed:
-    @echo ">> Applying MLLP wire-protocol config (hot, no restart) ..."
-    curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
+# Define a new message type at runtime — no code, no restart
+demo-catalog:
+    @echo ">> Defining a custom message type DIAGNOSTICS_UPLOAD (xml codec, edge->cloud) ..."
+    curl -fsS -X POST localhost:{{cloud_port}}/control/upsert-message-type \
         -H 'content-type: application/json' \
-        --data-binary @config/framed-routes.json | jq -c '.state.devices[0].tcpProtocol'
-    @sleep 3
-    @echo ">> Triggering CONFIG_UPDATE via dummy-cloud (proxy sends <VT>...<FS><CR>) ..."
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/config \
-        -H 'content-type: application/json' \
-        -d '{"configId":"CFG-FRAMED","key":"mode","value":"safe"}' | jq .
-    @sleep 3
-    @echo ">> Check dummy-cloud received the CONFIG_ACK (pushed back as a framed message):"
-    curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CFG-FRAMED")]'
+        -d '{"type":"DIAGNOSTICS_UPLOAD","direction":"EDGE_TO_CLOUD","codec":"xml","cloudEndpoint":"/api/diagnostics-upload","businessIdField":"snapshotId"}' \
+        | jq '.state.typeDirections'
+    @echo ">> DIAGNOSTICS_UPLOAD is now routable — defined at runtime, no profile edit, no restart."
 
-# Persistent TCP session: the proxy keeps a heartbeated socket to the device (no connect-per-message).
-# A CONFIG_UPDATE rides the live socket; the device pushes CONFIG_ACK back over the SAME socket.
-# Requires the device on the persistent profile: just run-dummy-edge-persistent
+# Remotely enable this install
+demo-enable:
+    curl -fsS -X POST localhost:{{cloud_port}}/control/enable | jq .
+
+# Remotely disable this install (soft off — listeners stop, control stays up)
+demo-disable:
+    curl -fsS -X POST localhost:{{cloud_port}}/control/disable | jq .
+
+# ---------------------------------------------------------------------------
+# Persistent-session demo: the proxy keeps a heartbeated socket open to the device
+# ---------------------------------------------------------------------------
+
+# Run the edge as a persistent-session device (proxy dials in on 9100 + heartbeats)
+run-dummy-edge-persistent:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,persistent
+
+# Deliver over the live persistent socket (pair with run-dummy-edge-persistent)
 demo-config-persistent:
     @echo ">> Applying persistent-session config (proxy dials the device; heartbeats start) ..."
     curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
@@ -250,55 +263,44 @@ demo-config-persistent:
     @echo ">> Cloud received the CONFIG_ACK (pushed back over the same persistent socket):"
     curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CFG-SESSION")]'
 
-# Add a CUSTOM message type to the live catalog (Part 3) — no code change, no restart.
-# Defines a type outside the starter profile with the xml codec; it shows up in typeDirections immediately.
-# (Manage the catalog visually on the Switchyard UI's Catalog tab.) Needs the rebuilt dummy-cloud.
-demo-catalog:
-    @echo ">> Defining a custom message type DIAGNOSTICS_UPLOAD (xml codec, edge->cloud) ..."
-    curl -fsS -X POST localhost:{{cloud_port}}/control/upsert-message-type \
-        -H 'content-type: application/json' \
-        -d '{"type":"DIAGNOSTICS_UPLOAD","direction":"EDGE_TO_CLOUD","codec":"xml","cloudEndpoint":"/api/diagnostics-upload","businessIdField":"snapshotId"}' \
-        | jq '.state.typeDirections'
-    @echo ">> DIAGNOSTICS_UPLOAD is now routable — defined at runtime, no profile edit, no restart."
+# ---------------------------------------------------------------------------
+# Multi-sandbox demo: the SAME binaries become two clients (warehouse + smart-grid)
+# by config alone. A = sandbox-a (proxy 8090 cloud 8091 UI 3000); B = sandbox-b (8190/8191/3001).
+# Full runbook: docs/multi-sandbox-demo.md
+# ---------------------------------------------------------------------------
 
-# XML round trip over HTTP: device emits XML, the proxy's xml codec pulls the business id
-# from the <commandId> element. Needs dummy-edge on the xml profile (just run-dummy-edge-xml)
-# and the rebuilt dummy-cloud (for the upsert-message-type endpoint).
-demo-command-http-xml:
-    @echo ">> Switching COMMAND_RESULT to the xml codec (live, no restart) ..."
-    curl -fsS -X POST localhost:{{cloud_port}}/control/upsert-message-type \
-        -H 'content-type: application/json' \
-        -d '{"type":"COMMAND_RESULT","direction":"EDGE_TO_CLOUD","codec":"xml","cloudEndpoint":"/api/command-result","businessIdField":"commandId"}' \
-        | jq -c '.state.catalogEntries[] | select(.type=="COMMAND_RESULT")'
-    @sleep 3
-    @echo ">> Firing DEVICE_COMMAND; the device returns an XML COMMAND_RESULT ..."
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/command \
-        -H 'content-type: application/json' \
-        -d '{"commandId":"CMD-XML","action":"REBOOT"}' | jq .
-    @sleep 3
-    @echo ">> Cloud received it (payload is raw XML; businessId extracted from <commandId>):"
-    curl -fsS localhost:{{cloud_port}}/demo/confirms | jq '[.[] | select(.businessId=="CMD-XML")]'
+# Create the sandbox-a / sandbox-b Temporal namespaces (safe to re-run)
+sandbox-namespaces:
+    -temporal operator namespace create --namespace sandbox-a --retention 24h 2>/dev/null || true
+    -temporal operator namespace create --namespace sandbox-b --retention 24h 2>/dev/null || true
+    @temporal operator namespace list | grep -E "Name:.*sandbox-[ab]" || echo "(check: namespaces sandbox-a / sandbox-b)"
 
-# Push an INVALID routing config (TCP port outside the pool) -> expect rejection
-demo-apply-bad-config:
+# Run a proxy on a namespace + port, e.g. just run-proxy-ns sandbox-a 8090
+run-proxy-ns ns port:
+    mvn -q -pl proxy spring-boot:run -Dspring-boot.run.profiles=local \
+        -Dspring-boot.run.arguments="--server.port={{port}} --spring.temporal.namespace={{ns}} --logging.level.heartbeat=INFO"
+
+# Run a dummy cloud on a namespace + port, e.g. just run-cloud-ns sandbox-a 8091
+run-cloud-ns ns port:
+    mvn -q -pl dummy-cloud spring-boot:run -Dspring-boot.run.profiles=local \
+        -Dspring-boot.run.arguments="--server.port={{port}} --cloud.temporal.namespace={{ns}} --spring.datasource.url=jdbc:h2:file:./data/cloud-{{ns}}"
+
+# Run the warehouse (sandbox-a) edge — CSV telemetry, STX/ETX framing
+run-dummy-edge-sandbox-a:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,sandbox-a
+
+# Run the smart-grid (sandbox-b) edge — XML telemetry, custom framing
+run-dummy-edge-sandbox-b:
+    mvn -q -pl dummy-edge spring-boot:run -Dspring-boot.run.profiles=local,sandbox-b
+
+# Run a UI bound to a sandbox (run build-ui first), e.g. just run-ui-ns sandbox-a 3000 8091
+run-ui-ns ns port cloud_port:
+    cd management-ui && printf 'TEMPORAL_NAMESPACE=%s\nDUMMY_CLOUD_URL=http://localhost:%s\n' {{ns}} {{cloud_port}} > .env.local && exec npx next start -p {{port}}
+
+# Import a sandbox's catalog + apply its devices, e.g. just sandbox-apply sandbox-a 8091
+sandbox-apply name cloud_port:
+    -curl -fsS -X POST localhost:{{cloud_port}}/control/remove-device/edge-gateway-01 > /dev/null 2>&1 || true
+    curl -fsS -X POST localhost:{{cloud_port}}/control/import-catalog \
+        -H 'content-type: application/json' --data-binary @config/{{name}}-catalog.json | jq -c '.state.typeDirections'
     curl -fsS -X POST localhost:{{cloud_port}}/control/apply-config \
-        -H 'content-type: application/json' \
-        --data-binary @config/invalid-routes.json | jq .
-
-# Query the control workflow's desired state (via dummy-cloud -> Temporal)
-demo-state:
-    curl -fsS localhost:{{cloud_port}}/control/state | jq .
-
-# Show the proxy's locally applied state (listeners, routes, enabled flag)
-proxy-status:
-    curl -fsS localhost:{{proxy_admin_port}}/admin/status | jq .
-
-# Idempotency check: fire the same DEVICE_COMMAND twice -> expect one execution
-demo-idempotency:
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/command \
-        -H 'content-type: application/json' \
-        -d '{"commandId":"CMD-DUP","action":"REBOOT"}' | jq -c .
-    curl -fsS -X POST localhost:{{cloud_port}}/demo/command \
-        -H 'content-type: application/json' \
-        -d '{"commandId":"CMD-DUP","action":"REBOOT"}' | jq -c .
-    @echo ">> Second call should report duplicate:true — exactly ONE execution in the Temporal UI."
+        -H 'content-type: application/json' --data-binary @config/{{name}}-routes.json | jq -c '[.state.devices[].deviceId]'

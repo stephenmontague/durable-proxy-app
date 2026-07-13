@@ -45,7 +45,13 @@ public class ConfirmPusher {
     }
 
     public void pushHttpCommandResult(String payload) {
-        schedule("COMMAND_RESULT", payload, this::sendHttp, 1);
+        String path = properties.proxy().commandResultPath();
+        schedule("COMMAND_RESULT", payload, p -> sendHttpTo(path, p), 1);
+    }
+
+    /** Echo an inbound cloud→edge delivery back to the proxy on the SAME channel it arrived on. */
+    public void pushHttpEcho(String requestPath, String payload) {
+        schedule("ECHO", payload, p -> sendHttpTo(requestPath, p), 1);
     }
 
     public void pushTcpConfigAck(String payload) {
@@ -77,10 +83,9 @@ public class ConfirmPusher {
         }, delay, TimeUnit.MILLISECONDS);
     }
 
-    private void sendHttp(String payload) throws Exception {
-        var proxy = properties.proxy();
+    private void sendHttpTo(String targetPath, String payload) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(proxy.httpBase() + proxy.commandResultPath()))
+                .uri(URI.create(properties.proxy().httpBase() + targetPath))
                 .timeout(Duration.ofSeconds(10))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
