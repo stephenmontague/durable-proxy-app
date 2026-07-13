@@ -35,19 +35,22 @@ flowchart LR
     prx["Proxy — the only Temporal worker<br/>egress-only"]
     dev["Edge device(s)<br/>HTTP · TCP · FTP"]
 
-    app -->|"start DeliverToEdge · signal/query proxy-control"| tem
-    prx -->|"worker poll · getState · reportApplied"| tem
+    app -->|"start DeliverToEdge · update/signal proxy-control"| tem
+    prx -->|"worker poll · run reconcile activity · reportApplied"| tem
     prx ==>|"cloud → edge: TransmitToDevice (route→codec→connector→channel)"| dev
     dev ==>|"edge → cloud: push to ingress channel"| prx
     prx -->|"edge → cloud: DeliverToCloud → POST cloud endpoint"| app
 ```
 
-- **Control plane.** A singleton `ProxyControlWorkflow` (Workflow ID `proxy-control`) holds desired
-  state `{enabled, devices[], catalog, version, …}`. Your cloud drives it with **signals**; the
-  proxy **polls it via query**, a `Reconciler` hot-applies changes, and the proxy **reports its
-  applied state back** — so the cloud sees desired-vs-applied without ever reaching into the proxy's
-  network. `requestRestart`/`requestShutdown` signals make the proxy exit gracefully; paired with
-  the supervisor wrapper that's a remote restart over egress-only gRPC.
+- **Control plane (push-based).** A singleton `ProxyControlWorkflow` (Workflow ID `proxy-control`)
+  holds desired state `{enabled, devices[], catalog, version, …}`. Your cloud drives it with
+  **Updates** (config changes — each validates and returns the resulting state synchronously) plus a
+  few **signals** (lifecycle). On each accepted change the workflow **pushes a `reconcile` activity**
+  to the proxy worker, which hot-applies via a `Reconciler`; that activity's return value _is_ the
+  proxy's **applied state**, so the cloud sees desired-vs-applied without ever reaching into the
+  proxy's network — and with no polling Query. Between changes the workflow parks on `Workflow.await`
+  and costs no Actions. `requestRestart`/`requestShutdown` signals make the proxy exit gracefully;
+  paired with the supervisor wrapper that's a remote restart over egress-only gRPC.
 - **Cloud → Edge.** Your cloud starts a `DeliverToEdge` **workflow** (Workflow ID
   `{messageType}-{businessId}`, reuse policy `REJECT_DUPLICATE` — duplicates collapse to one
   execution). The proxy worker runs it, executing a `TransmitToDevice` activity:
@@ -166,43 +169,49 @@ public Map<String,String> commandResult(@RequestBody CanonicalMessage msg) {
 
 ### 4. Drive the control plane
 
-Operator changes are **signals** to the `proxy-control` workflow; reads are the `getState` **query**.
-Send a signal, then poll the query to confirm the workflow **accepted** it (`version` bumps) or
-**rejected** it (`lastError` changes):
+Operator changes are **Updates** to the `proxy-control` workflow: each one validates, mutates, and
+**returns the resulting `ProxyControlState` synchronously**, so you read the outcome straight from the
+return value — **accepted** (`version` bumped, `lastError` null) or **rejected** (`lastError` set,
+`version` unchanged). No confirmation Query. The remaining verbs — `requestReconcile` (re-apply now)
+and the `requestRestart` / `requestShutdown` lifecycle commands — are fire-and-forget **signals**.
 
 <details>
 <summary>Reference (Java) — <a href="dummy-cloud/src/main/java/com/dummycloud/ConfigStateService.java"><code>ConfigStateService.java</code></a></summary>
 
 ```java
 WorkflowStub control = workflowClient.newUntypedWorkflowStub("proxy-control");
-control.signal("upsertMessageType", entry);                 // or enable, applyConfig, ...
-JsonNode state = control.query("getState", JsonNode.class);  // poll: version++ = accepted
+// Config changes are Updates — validate + mutate + return the new state in one call.
+JsonNode after = control.update("upsertMessageType", JsonNode.class, entry);  // or enable, applyConfig, ...
+boolean accepted = after.get("lastError").isNull();          // version bumped when accepted
 ```
 
 </details>
 
-| Signal                                    | Payload                                | Effect                                                                                         |
-| ----------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `enable` / `disable`                      | —                                      | Soft on/off of the data plane (listeners + outbound; control stays up)                         |
-| `applyConfig`                             | `EdgeConfig[]`                         | Replace the full device/routing config                                                         |
-| `upsertDevice` / `removeDevice`           | `EdgeConfig` / `deviceId` (string)     | Add-or-replace / remove one device                                                             |
-| `upsertMessageType` / `removeMessageType` | `CatalogEntryDto` / `type` (string)    | Add-or-replace / remove one message type                                                       |
-| `importCatalog`                           | `CatalogEntryDto[]`                    | Replace the whole message catalog                                                              |
-| `requestRestart` / `requestShutdown`      | —                                      | Graceful proxy exit (restart relaunches via supervisor)                                        |
-| `ackLifecycle` / `reportApplied`          | `requestId` (string) / `AppliedStatus` | **Sent by the proxy** (ack a lifecycle cmd; report applied state)                              |
-| **query** `getState`                      | → `ProxyControlState`                  | Desired state: `enabled, devices, catalogEntries, typeDirections, version, lastError, applied` |
+| Name                                      | Kind   | Payload → returns                          | Effect                                                                                                        |
+| ----------------------------------------- | ------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `enable` / `disable`                      | Update | — → state                                  | Soft on/off of the data plane (listeners + outbound; control stays up)                                        |
+| `applyConfig`                             | Update | `EdgeConfig[]` → state                     | Replace the full device/routing config                                                                        |
+| `upsertDevice` / `removeDevice`           | Update | `EdgeConfig` / `deviceId` → state          | Add-or-replace / remove one device                                                                            |
+| `upsertMessageType` / `removeMessageType` | Update | `CatalogEntryDto` / `type` → state         | Add-or-replace / remove one message type                                                                      |
+| `importCatalog`                           | Update | `CatalogEntryDto[]` → state                | Replace the whole message catalog                                                                             |
+| `requestReconcile`                        | Signal | —                                          | Re-apply desired state now (manual repair / boot sync / drift self-heal)                                      |
+| `requestRestart` / `requestShutdown`      | Signal | —                                          | Graceful proxy exit (restart relaunches via supervisor)                                                       |
+| `ackLifecycle`                            | Signal | `requestId` (string)                       | **Sent by the proxy** — clears a lifecycle command durably before it exits                                    |
+| `reportApplied`                           | Update | `AppliedStatus` → desired `version` (long) | **Sent by the proxy** — pushes link-health transitions between reconciles; the return lets it detect drift    |
+| `getState`                                | Query  | → `ProxyControlState`                      | Desired state `{enabled, devices, catalogEntries, typeDirections, version, lastError, applied}` — hydrates the read model, not polled |
 
 > **Tip — don't query Temporal on every UI read.** Temporal Queries are billable Actions. The
-> reference app persists each _accepted_ state to a local H2 read model and serves UI reads from
-> there (`workflow → H2`, one-way); it only queries to confirm a signal. The **Switchyard** UI never
-> talks to the proxy directly — every command is a signal, every readout a query/read model.
+> reference app persists each _accepted_ state (the Update's return value) to a local H2 read model
+> and serves UI reads from there (`workflow → H2`, one-way); it issues a `getState` Query only **once**,
+> to hydrate an empty read model. The **Switchyard** UI never talks to the proxy directly — every
+> command is an Update/signal, every readout comes from the read model.
 
 ### The contract (works from any language)
 
 You do **not** need to depend on the proxy module — define the shapes natively in your language:
 
 - **Temporal names:** workflow type `DeliverToEdge`, control workflow ID `proxy-control`, task queues
-  `proxy-main` (data) and `proxy-control` (control); the signal/query names above.
+  `proxy-main` (data) and `proxy-control` (control); the update/signal/query names above.
 - **Wire-compatible JSON:** match the field names — serialization is by field name with no language-
   or class-metadata on the wire, so a Go struct, a Python dataclass, or a TS interface all interop.
   The shapes: `CanonicalMessage {messageType, businessId, payload}`, `CatalogEntryDto`, `EdgeConfig`
@@ -278,14 +287,18 @@ CLOUD_TO_EDGE:   cloud  ─────────────▶ proxy ──[
 
 ### How hot reload works
 
-A signal updates the workflow's desired state and bumps `version`. The proxy
-([`ProxyControlPoller`](proxy/src/main/java/com/proxyapp/control/ProxyControlPoller.java)) polls
-`getState` every couple of seconds, and on a version/enabled change calls
-[`Reconciler.apply`](proxy/src/main/java/com/proxyapp/control/Reconciler.java), which **validates**
-the proposed config and then **atomically swaps** the route table and reconciles HTTP/TCP/FTP ingress
-listeners, persistent TCP sessions, and the data worker's polling — **with no restart**. It then
-`reportApplied`s back so the cloud can show desired-vs-applied. An invalid config is rejected
-(`lastError`) and the last good config stays live.
+An **Update** validates, mutates the workflow's desired state, and bumps `version` (an invalid change
+is rejected right there, with `lastError`, and never goes live). The workflow is **push-based**: on
+the change it schedules a **`reconcile` activity**
+([`ControlActivities`](proxy/src/main/java/com/proxyapp/temporal/activity/ControlActivities.java)) on
+the proxy worker, which calls
+[`Reconciler.apply`](proxy/src/main/java/com/proxyapp/control/Reconciler.java) to **atomically swap**
+the route table and reconcile HTTP/TCP/FTP ingress listeners, persistent TCP sessions, and the data
+worker's polling — **with no restart**. That activity **returns the applied state**, which the
+workflow records for the cloud to read (desired-vs-applied) at no extra Action. Between changes the
+workflow parks on `Workflow.await` (zero Actions); on boot the proxy
+([`ControlBootstrap`](proxy/src/main/java/com/proxyapp/control/ControlBootstrap.java)) sends one
+`requestReconcile` so a freshly-started proxy applies current desired state immediately.
 
 **No code change needed** to add/edit **message types** or **devices** — they're data carried by
 signals. **Code + redeploy** is only needed to add a new **codec** or **transport** (those are
@@ -293,14 +306,15 @@ compiled SPIs: `MessageCodec` / `Connector`).
 
 ### Safely changing the workflow itself
 
-`ProxyControlWorkflow` is a long-running singleton (it `continueAsNew`s periodically), so edits must
-stay **replay-safe** for the in-flight `proxy-control` execution. There is intentionally **no
+`ProxyControlWorkflow` is a long-running singleton (it `continueAsNew`s when the server suggests it
+via `isContinueAsNewSuggested()`), so edits must stay **replay-safe** for the in-flight
+`proxy-control` execution. There is intentionally **no
 `Workflow.getVersion` patching today** — the design stays additive instead. State is serialized by
 Jackson **by field name** (no `@JsonTypeInfo`/`@class`), which is what makes additive changes safe.
 
-- ✅ **Replay-safe (just deploy a new worker):** add a new `@SignalMethod`/`@QueryMethod`; add a new
-  **optional** `ProxyControlState` field with a default value; add deterministic validation. Old
-  histories simply never exercised the new path.
+- ✅ **Replay-safe (just deploy a new worker):** add a new `@UpdateMethod`/`@SignalMethod`/`@QueryMethod`;
+  add a new **optional** `ProxyControlState` field with a default value; add deterministic validation.
+  Old histories simply never exercised the new path.
 - ⚠️ **Needs `Workflow.getVersion` (or draining/replacing the `proxy-control` run):** changing the
   _logic_ of an existing signal handler, renaming/retyping a state field, or introducing any
   non-deterministic/IO behavior into the workflow. See Temporal's versioning guidance and
@@ -311,9 +325,11 @@ code — which is the point of the design.
 
 ### Lifecycle / remote restart
 
-`requestRestart` / `requestShutdown` set a durable lifecycle command on the workflow. The poller acks
-it (so a relaunched proxy won't replay it), then exits the JVM — code `10` for restart, `0` for
-shutdown. [`scripts/proxy-supervisor.sh`](scripts/proxy-supervisor.sh) relaunches on exit `10` and
+`requestRestart` / `requestShutdown` set a durable lifecycle command on the workflow, which pushes it
+to the proxy as a one-shot `deliverLifecycle` activity. The proxy's
+[`LifecycleController`](proxy/src/main/java/com/proxyapp/control/LifecycleController.java) acks it (so
+a relaunched proxy won't replay it), then exits the JVM on a short delay — code `10` for restart, `0`
+for shutdown. [`scripts/proxy-supervisor.sh`](scripts/proxy-supervisor.sh) relaunches on exit `10` and
 stays down otherwise. Run the proxy under the supervisor (`just run-proxy-managed`) to enable the
 UI's RESTART button. All of this rides the proxy's existing egress gRPC — nothing dials in.
 
@@ -330,30 +346,41 @@ UI's RESTART button. All of this rides the proxy's existing egress gRPC — noth
 
 ## Run the reference demo
 
-Three terminals from the repo root, plus an optional UI:
+The fastest path is the one-command stack — it starts Temporal (if needed), builds, and launches
+proxy + cloud + edge + UI, backgrounding each to `logs/`:
 
 ```sh
-just temporal-check      # verify local Temporal is up + standalone-capable
-just run-proxy           # 1: the proxy        (:8090, worker on proxy-main/proxy-control)
-just run-dummy-cloud     # 2: reference cloud  (:8091, Temporal client only)
-just run-dummy-edge      # 3: reference edge   (:8092 + TCP 9001 + FTP 2222)
+just up                  # whole stack on the `demo` namespace (just up <ns> for another)
+just logs proxy          # tail any service: temporal | proxy | cloud | edge | ui
+just restart edge        # rebuild + bounce one service, leave the rest up
+just down                # stop everything just up started
+```
+
+Or run each in its own terminal (Temporal must be up first — `just temporal-dev` starts a no-Docker
+dev server with standalone activities enabled):
+
+```sh
+just run-proxy           # the proxy        (:8090, worker on proxy-main/proxy-control)
+just run-dummy-cloud     # reference cloud  (:8091, Temporal client only)
+just run-dummy-edge      # reference edge   (:8092 + TCP 9001 + FTP 2222)
 just run-ui              # optional: Switchyard console at http://localhost:3000
 ```
 
-> Use `just run-proxy-managed` instead of `run-proxy` to run under the restart-on-exit supervisor
-> (required for the UI's RESTART button).
+> `just up` already runs the proxy supervised. For the manual path, use `just run-proxy-managed`
+> instead of `run-proxy` to run under the restart-on-exit supervisor (required for the UI's RESTART
+> button).
 
-A few representative round trips (see the [`justfile`](justfile) for the full set — TCP/FTP, custom
-wire protocols, persistent sessions, XML, bad-config rejection, …):
+A few representative round trips (see the [`justfile`](justfile) for the full set — persistent
+sessions, the multi-sandbox demo, and more):
 
 ```sh
 just demo-command        # DEVICE_COMMAND → device → COMMAND_RESULT → cloud (HTTP)
-just demo-idempotency    # fire the same command twice → one execution (dedup)
+just demo-config-tcp     # CONFIG_UPDATE  → device → CONFIG_ACK     → cloud (TCP)
+just demo-report-ftp     # REPORT_REQUEST → device → REPORT_UPLOAD  → cloud (FTP)
 just demo-disable        # remote soft-off (ingress stops, outbound pauses, egress stays up)
 just demo-enable         # remote resume
 just demo-apply-config   # hot routing reload (config/sample-routes.json), no restart
 just demo-catalog        # define a custom message type at runtime (xml codec), no restart
-just demo-state          # control workflow desired state;  just proxy-status = applied state
 ```
 
 > **These type names and paths are the harness's, not the proxy's.** `DEVICE_COMMAND`,
@@ -399,8 +426,10 @@ proxy/src/main/java/com/proxyapp/
 ├── controller/    AdminController (/admin/status), HttpIngressController (HTTP edge→cloud ingress)
 ├── temporal/
 │   ├── workflow/  DeliverToEdgeWorkflow(+Impl) · ProxyControlWorkflow(+Impl)
-│   └── activity/  DeliverToEdgeActivity ("TransmitToDevice") · DeliverToCloudActivity (+Impls)
-├── control/       ProxyControlStarter · ProxyControlPoller · Reconciler · CatalogValidator
+│   └── activity/  DeliverToEdgeActivity ("TransmitToDevice") · DeliverToCloudActivity
+│                  · ControlActivities ("Reconcile" / "DeliverLifecycle") (+Impls)
+├── control/       ProxyControlStarter · ControlBootstrap · Reconciler · AppliedStatusReporter
+│                  · LifecycleController · CatalogValidator
 │   └── model/     ProxyControlState · CatalogEntryDto · AppliedStatus
 ├── ingress/       InboundGateway (channel→type→decode→enqueue→ack) · TcpSocketServer
 │                  · FtpIngressListener · InboundSink (SPI) · IngressException
@@ -426,7 +455,7 @@ service impls (so `codec/` and `profile/` have no `model/`).
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **HTTP**                       | Device gets `202` only after Temporal accepted the enqueue (`503` while disabled, `404` unbound channel). Relies on device retry until acked.                               | Non-2xx fails the activity → Temporal retries. Device should treat repeated POSTs of the same business id as idempotent.                                                            |
 | **TCP**                        | `ACK <activityId>` written only after enqueue; `ERR …` otherwise. Relies on device retry until acked.                                                                       | Send fails unless the device answers `ACK` → Temporal retries. Raw TCP has no store-and-forward of its own.                                                                         |
-| **TCP (custom wire protocol)** | Per-device/per-binding `tcpProtocol`: start/stop frame delimiters (MLLP-style, multiple frames per socket, per-frame ack-after-enqueue) and custom ACK/NAK reply templates. | Framed sends with a configurable expected ack (contains-match), or fire-and-forget for silent devices. See the PLAN.md wire-protocol appendix; demo: `just demo-config-tcp-framed`. |
+| **TCP (custom wire protocol)** | Per-device/per-binding `tcpProtocol`: start/stop frame delimiters (MLLP-style, multiple frames per socket, per-frame ack-after-enqueue) and custom ACK/NAK reply templates. | Framed sends with a configurable expected ack (contains-match), or fire-and-forget for silent devices. See the PLAN.md wire-protocol appendix. |
 | **FTP**                        | Store-and-forward: files persist in the drop folder until consumed (deleted) after a successful enqueue; failed files are re-swept on the next reconcile.                   | Upload uses temp-name-then-rename so the device never sees partial files; the deterministic filename (`{activityId}.json`) makes activity retries overwrite, not duplicate.         |
 
 Common to all: **`{messageType}-{businessId}`** (Workflow ID outbound, Activity ID inbound) collapses
