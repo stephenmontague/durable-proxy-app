@@ -8,7 +8,9 @@ import com.proxyapp.connector.ConnectorFactory;
 import com.proxyapp.connector.FtpConnector;
 import com.proxyapp.connector.HttpConnector;
 import com.proxyapp.connector.TcpConnector;
-import com.proxyapp.control.ProxyControlPoller;
+import com.proxyapp.control.AppliedStatusReporter;
+import com.proxyapp.control.ControlBootstrap;
+import com.proxyapp.control.LifecycleController;
 import com.proxyapp.control.ProxyControlStarter;
 import com.proxyapp.control.Reconciler;
 import com.proxyapp.ingress.FtpIngressListener;
@@ -117,15 +119,25 @@ public class ProxyAppConfig {
     }
 
     @Bean
-    public ProxyControlPoller proxyControlPoller(WorkflowClient workflowClient,
-                                                 ProxyControlStarter starter,
-                                                 Reconciler reconciler,
-                                                 RoutingState routingState,
-                                                 TcpSocketServer tcpSocketServer,
-                                                 FtpIngressListener ftpIngressListener,
-                                                 TcpSessionManager tcpSessionManager,
-                                                 ApplicationContext applicationContext) {
-        return new ProxyControlPoller(workflowClient, starter, reconciler, routingState,
-                tcpSocketServer, ftpIngressListener, tcpSessionManager, applicationContext);
+    public LifecycleController lifecycleController(WorkflowClient workflowClient,
+                                                   ApplicationContext applicationContext) {
+        return new LifecycleController(workflowClient, applicationContext);
+    }
+
+    @Bean
+    public AppliedStatusReporter appliedStatusReporter(WorkflowClient workflowClient,
+                                                       RoutingState routingState,
+                                                       TcpSocketServer tcpSocketServer,
+                                                       FtpIngressListener ftpIngressListener,
+                                                       TcpSessionManager tcpSessionManager) {
+        return new AppliedStatusReporter(workflowClient, routingState, tcpSocketServer,
+                ftpIngressListener, tcpSessionManager);
+    }
+
+    /** Boot trigger that replaces the 2s control poll: ensure the workflow + one reconcile. */
+    @Bean
+    public ControlBootstrap controlBootstrap(WorkflowClient workflowClient,
+                                             ProxyControlStarter starter) {
+        return new ControlBootstrap(workflowClient, starter);
     }
 }
