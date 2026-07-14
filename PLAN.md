@@ -4,6 +4,8 @@
 >
 > The device-fleet case (a cloud platform ↔ an on-prem edge fleet) is used throughout as the **reference example / demo profile** — it is _not_ baked into the core. Swap the profile and the same proxy connects anything cloud-side to anything on-prem.
 
+> **Note (post-split):** the reference `dummy-cloud` / `dummy-edge` apps, the **Switchyard** UI, and the `just` demo recipes this plan mentions (`just demo-command`, `run-dummy-edge-persistent`, …) now live in the companion [durable-proxy-app-demo](https://github.com/stephenmontague/durable-proxy-app-demo) repo. This document stays the proxy's design-of-record and describes them as originally built here.
+
 ---
 
 ## How to use this document

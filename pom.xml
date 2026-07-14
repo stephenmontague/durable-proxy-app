@@ -9,12 +9,12 @@
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>cloud-edge-proxy</name>
-  <description>Cloud-Edge durable proxy monorepo: the connector plus its demo harness</description>
+  <description>Domain-agnostic durable Cloud-Edge proxy backed by Temporal</description>
 
-  <!-- Aggregation only — each module keeps spring-boot-starter-parent as its parent. -->
+  <!-- Aggregation only — proxy keeps spring-boot-starter-parent as its parent.
+       The reference cloud + edge apps and the Switchyard UI live in a separate repo:
+       https://github.com/stephenmontague/durable-proxy-app-demo -->
   <modules>
     <module>proxy</module>
-    <module>dummy-cloud</module>
-    <module>dummy-edge</module>
   </modules>
 </project>
