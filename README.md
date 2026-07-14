@@ -6,9 +6,9 @@ backbone. One proxy per install, **egress-only** (the edge site opens no inbound
 operator-configurable at runtime with **no redeploys**.
 
 This README is a guide for **forking the project and wiring it to your own cloud app**. For the
-full design rationale see [PLAN.md](PLAN.md); the reference cloud/edge apps under
-[`dummy-cloud/`](dummy-cloud/README.md) and [`dummy-edge/`](dummy-edge/README.md) are working
-examples of everything described here.
+full design rationale see [PLAN.md](PLAN.md). Runnable reference cloud/edge apps and the **Switchyard**
+operations UI — working examples of everything described here — live in the companion
+[**durable-proxy-app-demo**](https://github.com/stephenmontague/durable-proxy-app-demo) repo.
 
 ---
 
@@ -67,17 +67,20 @@ flowchart LR
 
 ## Repo layout
 
-| Module                                      | What it is                                                                                                  |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [`proxy/`](proxy/)                          | The connector itself — the only Temporal worker, egress-only                                                |
-| [`dummy-cloud/`](dummy-cloud/README.md)     | Reference cloud app (:8091) — Temporal **client only** (dispatch + control + receive endpoints)             |
-| [`dummy-edge/`](dummy-edge/README.md)       | Reference edge target (:8092, TCP 9001, FTP 2222) — auto-confirms                                           |
-| [`management-ui/`](management-ui/README.md) | **Switchyard** operations console (:3000, Next.js) — lifecycle, catalog, routing wizard, live Temporal feed |
-| [`config/`](config/)                        | Demo routing/catalog configs for hot-reload / validation demos                                              |
-| [`scripts/`](scripts/)                      | `proxy-supervisor.sh` — restart-on-exit wrapper for remote restarts                                         |
-| [`justfile`](justfile)                      | Build + demo recipes (all run from this root)                                                               |
+| Path                   | What it is                                                          |
+| ---------------------- | ------------------------------------------------------------------ |
+| [`proxy/`](proxy/)     | The connector itself — the only Temporal worker, egress-only       |
+| [`scripts/`](scripts/) | `proxy-supervisor.sh` — restart-on-exit wrapper for remote restarts |
+| [`docs/`](docs/)       | Design deep-dives (architecture, persistent TCP sessions)          |
+| [`PLAN.md`](PLAN.md)   | Design-of-record and rationale                                     |
+| [`justfile`](justfile) | Build + run recipes (`just build`, `just run-proxy`, …)            |
 
-The root [pom.xml](pom.xml) is a Maven aggregator: `mvn package` builds all three apps.
+The root [pom.xml](pom.xml) is a thin Maven aggregator over `proxy/` — `mvn package` builds the proxy jar.
+
+> **Reference stack (separate repo).** A stand-in cloud app, a stand-in edge device, and the
+> **Switchyard** operations console live in
+> [**durable-proxy-app-demo**](https://github.com/stephenmontague/durable-proxy-app-demo) — clone it
+> next to this repo and run `just up` for a one-command end-to-end demo of everything below.
 
 ---
 
@@ -87,7 +90,7 @@ Your cloud app integrates with the proxy **by contract, not by shared code**: it
 same Temporal namespace and speaks a handful of agreed names plus wire-compatible JSON. **Any
 Temporal SDK works** — Go, Python, TypeScript, Java, .NET, PHP, Ruby — so the cloud app can be in
 whatever language and framework you already use. The four pieces below _are_ the contract; the
-collapsed snippets come from the reference impl ([`dummy-cloud/`](dummy-cloud/README.md), Java/Spring)
+collapsed snippets come from the reference impl ([`dummy-cloud/`](https://github.com/stephenmontague/durable-proxy-app-demo/tree/main/dummy-cloud), Java/Spring)
 and are illustrative, not prescriptive.
 
 ### 1. Connect (a client, not a worker)
@@ -101,7 +104,7 @@ For **Temporal Cloud**, target `<ns-id>.<region>.tmprl.cloud:7233` with namespac
 The reference app connects without mTLS for local dev; see [Target Temporal Cloud](#target-temporal-cloud).
 
 <details>
-<summary>Reference (Java/Spring) — <a href="dummy-cloud/src/main/java/com/dummycloud/TemporalClientConfig.java"><code>TemporalClientConfig.java</code></a></summary>
+<summary>Reference (Java/Spring) — <a href="https://github.com/stephenmontague/durable-proxy-app-demo/blob/main/dummy-cloud/src/main/java/com/dummycloud/TemporalClientConfig.java"><code>TemporalClientConfig.java</code></a></summary>
 
 ```java
 @Bean(destroyMethod = "shutdown")
@@ -132,7 +135,7 @@ Start a workflow with these parameters; it lands in Temporal and the proxy worke
 | Input (JSON)    | `{ "messageType": "…", "businessId": "…", "payload": "…" }` — `payload` is the codec's wire string (JSON/XML/raw); the proxy encodes it for the device |
 
 <details>
-<summary>Reference (Java) — <a href="dummy-cloud/src/main/java/com/dummycloud/OutboundDispatcher.java"><code>OutboundDispatcher.java</code></a></summary>
+<summary>Reference (Java) — <a href="https://github.com/stephenmontague/durable-proxy-app-demo/blob/main/dummy-cloud/src/main/java/com/dummycloud/OutboundDispatcher.java"><code>OutboundDispatcher.java</code></a></summary>
 
 ```java
 WorkflowOptions options = WorkflowOptions.newBuilder()
@@ -155,7 +158,7 @@ Expose one HTTP endpoint per inbound (`EDGE_TO_CLOUD`) type, at the path you set
 (the proxy retries the same `businessId` until it gets a 2xx). It's plain HTTP — any web framework.
 
 <details>
-<summary>Reference (Java/Spring) — <a href="dummy-cloud/src/main/java/com/dummycloud/InboundController.java"><code>InboundController.java</code></a></summary>
+<summary>Reference (Java/Spring) — <a href="https://github.com/stephenmontague/durable-proxy-app-demo/blob/main/dummy-cloud/src/main/java/com/dummycloud/InboundController.java"><code>InboundController.java</code></a></summary>
 
 ```java
 @PostMapping("/api/command-result")          // = this type's cloud endpoint
@@ -176,7 +179,7 @@ return value — **accepted** (`version` bumped, `lastError` null) or **rejected
 and the `requestRestart` / `requestShutdown` lifecycle commands — are fire-and-forget **signals**.
 
 <details>
-<summary>Reference (Java) — <a href="dummy-cloud/src/main/java/com/dummycloud/ConfigStateService.java"><code>ConfigStateService.java</code></a></summary>
+<summary>Reference (Java) — <a href="https://github.com/stephenmontague/durable-proxy-app-demo/blob/main/dummy-cloud/src/main/java/com/dummycloud/ConfigStateService.java"><code>ConfigStateService.java</code></a></summary>
 
 ```java
 WorkflowStub control = workflowClient.newUntypedWorkflowStub("proxy-control");
@@ -267,8 +270,8 @@ A `DeviceTemplate` is a clone-and-fill profile for a device model (supply only s
 ### channel vs cloud endpoint (the one to get right)
 
 These are the two coordinates operators most often confuse — the UI calls them out explicitly
-(see [`channel-copy.ts`](management-ui/src/lib/channel-copy.ts) /
-[`flow-legend.tsx`](management-ui/src/components/catalog/flow-legend.tsx)):
+(see [`channel-copy.ts`](https://github.com/stephenmontague/durable-proxy-app-demo/blob/main/management-ui/src/lib/channel-copy.ts) /
+[`flow-legend.tsx`](https://github.com/stephenmontague/durable-proxy-app-demo/blob/main/management-ui/src/components/catalog/flow-legend.tsx)):
 
 ```
 EDGE_TO_CLOUD:   device ──[ channel ]──▶ proxy ──[ cloud endpoint ]──▶ cloud
@@ -344,60 +347,48 @@ UI's RESTART button. All of this rides the proxy's existing egress gRPC — noth
   (`temporalio/server:1.31+`, Web UI at <http://localhost:8080>); without Docker,
   `just temporal-dev` starts an equivalent CLI dev server (Web UI <http://localhost:8233>).
 
-## Run the reference demo
-
-The fastest path is the one-command stack — it starts Temporal (if needed), builds, and launches
-proxy + cloud + edge + UI, backgrounding each to `logs/`:
+## Run the proxy
 
 ```sh
-just up                  # whole stack on the `demo` namespace (just up <ns> for another)
-just logs proxy          # tail any service: temporal | proxy | cloud | edge | ui
-just restart edge        # rebuild + bounce one service, leave the rest up
-just down                # stop everything just up started
+just temporal-dev        # local Temporal dev server with standalone activities (no Docker; UI :8233)
+just run-proxy           # the proxy (:8090, worker on proxy-main/proxy-control)
 ```
 
-Or run each in its own terminal (Temporal must be up first — `just temporal-dev` starts a no-Docker
-dev server with standalone activities enabled):
+Under the restart-on-exit supervisor instead (enables the UI's RESTART button; optional namespace arg):
 
 ```sh
-just run-proxy           # the proxy        (:8090, worker on proxy-main/proxy-control)
-just run-dummy-cloud     # reference cloud  (:8091, Temporal client only)
-just run-dummy-edge      # reference edge   (:8092 + TCP 9001 + FTP 2222)
-just run-ui              # optional: Switchyard console at http://localhost:3000
+just run-proxy-managed   # e.g. just run-proxy-managed <ns>
 ```
 
-> `just up` already runs the proxy supervised. For the manual path, use `just run-proxy-managed`
-> instead of `run-proxy` to run under the restart-on-exit supervisor (required for the UI's RESTART
-> button).
+A fresh proxy boots with the **`empty`** profile — no message types at all — so it stays idle until
+your cloud app defines a catalog and devices over the control plane. Against your own setup you use
+whatever type names and endpoints _they_ use.
 
-A few representative round trips (see the [`justfile`](justfile) for the full set — persistent
-sessions, the multi-sandbox demo, and more):
+### Try the full reference stack
+
+To exercise the proxy end to end without writing a cloud app yet, use the companion
+[**durable-proxy-app-demo**](https://github.com/stephenmontague/durable-proxy-app-demo) repo — a
+stand-in cloud, a stand-in edge device, and the Switchyard console. Clone it next to this one:
 
 ```sh
-just demo-command        # DEVICE_COMMAND → device → COMMAND_RESULT → cloud (HTTP)
-just demo-config-tcp     # CONFIG_UPDATE  → device → CONFIG_ACK     → cloud (TCP)
-just demo-report-ftp     # REPORT_REQUEST → device → REPORT_UPLOAD  → cloud (FTP)
-just demo-disable        # remote soft-off (ingress stops, outbound pauses, egress stays up)
-just demo-enable         # remote resume
-just demo-apply-config   # hot routing reload (config/sample-routes.json), no restart
-just demo-catalog        # define a custom message type at runtime (xml codec), no restart
+git clone https://github.com/stephenmontague/durable-proxy-app-demo
+cd durable-proxy-app-demo
+just up                  # Temporal (if needed) + proxy (built from ../durable-proxy-app) + cloud + edge + UI
+just demo-command        # DEVICE_COMMAND → device → COMMAND_RESULT → cloud (an HTTP round trip)
 ```
 
-> **These type names and paths are the harness's, not the proxy's.** `DEVICE_COMMAND`,
-> `COMMAND_RESULT`, the ingress path `/command-result`, and the cloud endpoint `/api/command-result`
-> all come from the reference _device-fleet_ profile and the stand-in apps — the fake device
-> ([`dummy-edge`](dummy-edge/README.md)) is coded to emit a `COMMAND_RESULT` to `/command-result`,
-> and the fake cloud ([`dummy-cloud`](dummy-cloud/README.md)) receives it on `/api/command-result`.
-> The proxy bakes in none of this: its HTTP ingress is a catch-all that looks the request path up in
-> your route table ([`HttpIngressController`](proxy/src/main/java/com/proxyapp/controller/HttpIngressController.java)),
-> and each type's cloud endpoint is operator data. A fresh proxy boots with the **`empty`** profile —
-> no types at all — so against your own device and cloud you use whatever names _they_ use, and these
-> demo names carry no special meaning.
+That repo builds and launches this proxy from `PROXY_DIR` (default `../durable-proxy-app`) and drives
+HTTP/TCP/FTP round trips, hot config reloads, runtime catalog edits, persistent sessions, and a
+multi-sandbox demo. Its type names (`DEVICE_COMMAND`, ingress `/command-result`, cloud endpoint
+`/api/command-result`, …) are the **harness's, not the proxy's** — the proxy bakes in none of them.
+Its HTTP ingress is a catch-all that looks the request path up in your route table
+([`HttpIngressController`](proxy/src/main/java/com/proxyapp/controller/HttpIngressController.java)),
+and each type's cloud endpoint is operator data. A fresh proxy has no types at all.
 
 Inspect executions in the Temporal UI (standalone activities have their own nav item).
 
-> **Ports:** the demo apps use 8090/8091/8092 to stay clear of the Docker Temporal UI (8080).
-> Everything is overridable via Spring env vars, e.g.
+> **Ports:** the proxy listens on `8090` (HTTP ingress), clear of the Docker Temporal UI (8080).
+> Overridable via Spring env vars, e.g.
 > `SERVER_PORT=9090 SPRING_TEMPORAL_CONNECTION_TARGET=127.0.0.1:7243 just run-proxy`.
 
 ## Target Temporal Cloud
@@ -469,15 +460,18 @@ in Temporal and delivers on reconnect.
 > link warm while Temporal still does durable delivery (CLIENT or SERVER role, configurable liveness,
 > correlated sends, unsolicited inbound → `DeliverToCloud`). Configure it per device under the Config
 > tab's **Connection** section and watch per-device UP/DOWN in the **Persistent connections** table.
-> Design + internals: [docs/persistent-tcp-sessions.md](docs/persistent-tcp-sessions.md). Demo:
+> Design + internals: [docs/persistent-tcp-sessions.md](docs/persistent-tcp-sessions.md). Demo it via
+> the [reference stack](https://github.com/stephenmontague/durable-proxy-app-demo):
 > `just run-dummy-edge-persistent` then `just demo-config-persistent`.
 
 ## Tests
 
 ```sh
 just test      # Java: routing core, validators, codecs, TCP wire protocol, catalog signals
-just test-ui   # TypeScript: WireString + config + catalog validator parity vectors (vitest)
 ```
+
+The Switchyard UI's WireString/validator parity tests (`just test-ui`) live with the UI in the
+[reference stack](https://github.com/stephenmontague/durable-proxy-app-demo).
 
 ## License
 
