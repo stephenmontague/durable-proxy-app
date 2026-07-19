@@ -92,6 +92,17 @@ public interface ProxyControlWorkflow {
     @UpdateMethod
     long reportApplied(AppliedStatus status);
 
+    /**
+     * On-demand <b>live</b> link check. Unlike {@link #getState()} (a Query returning the last-reported
+     * {@code applied} snapshot), this schedules a lightweight {@code ProbeSessions} activity on the
+     * proxy worker that reads the current persistent-TCP session state (UP/DOWN/CONNECTING) straight
+     * from the sockets, records it, and returns it — so the cloud gets ground truth for one Action per
+     * call. If the proxy is unreachable the activity fails fast and the Update surfaces that (rather
+     * than returning a stale UP). Does not bump {@code version} or wake the reconcile loop.
+     */
+    @UpdateMethod
+    AppliedStatus checkSessions();
+
     @QueryMethod
     ProxyControlState getState();
 }
