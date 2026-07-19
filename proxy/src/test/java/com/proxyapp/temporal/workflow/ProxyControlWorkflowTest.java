@@ -8,6 +8,7 @@ import com.proxyapp.routing.model.Channel;
 import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.model.RouteBinding;
 import com.proxyapp.routing.model.Transport;
+import com.proxyapp.session.model.DeviceSessionStatus;
 import com.proxyapp.temporal.activity.ControlActivities;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowOptions;
@@ -190,6 +191,27 @@ class ProxyControlWorkflowTest {
     }
 
     @Test
+    void checkSessionsProbesLiveStateReturnsItAndRecordsItWithoutBumpingVersion() {
+        env.sleep(Duration.ofSeconds(1)); // let the startup reconcile settle first
+        long versionBefore = workflow.getState().getVersion();
+
+        AppliedStatus live = workflow.checkSessions();
+
+        // it actually asked the proxy (ran the probe activity), not just read stored state
+        assertThat(activities.probeCount.get()).isEqualTo(1);
+        assertThat(live.sessions()).hasSize(1);
+        assertThat(live.sessions().get(0).deviceId()).isEqualTo("gateway-1");
+        assertThat(live.sessions().get(0).state()).isEqualTo("UP");
+
+        // the live result is recorded into applied so cheap getState readers benefit too ...
+        AppliedStatus stored = workflow.getState().getApplied();
+        assertThat(stored.sessions()).hasSize(1);
+        assertThat(stored.sessions().get(0).state()).isEqualTo("UP");
+        // ... but a probe is observability only — it must not bump the desired version
+        assertThat(workflow.getState().getVersion()).isEqualTo(versionBefore);
+    }
+
+    @Test
     void tcpProtocolSurvivesTheJacksonRoundTrip() {
         // Through update payload -> workflow state -> query result; guards against the
         // phantom-property hazard on record helper accessors.
@@ -315,6 +337,11 @@ class ProxyControlWorkflowTest {
         final AtomicInteger reconcileCount = new AtomicInteger();
         volatile long lastReconciledVersion = -1;
         final List<String> lifecycleDeliveries = new CopyOnWriteArrayList<>();
+        final AtomicInteger probeCount = new AtomicInteger();
+        // The live snapshot the on-demand probe returns — a device UP by default.
+        volatile AppliedStatus probeResult = new AppliedStatus(0, true,
+                List.of(), List.of(), List.of(), "t", "t", false,
+                List.of(new DeviceSessionStatus("gateway-1", "CLIENT", "UP", "2026-06-11T12:00:00Z", 0)));
 
         @Override
         public AppliedStatus reconcile(ProxyControlState desired) {
@@ -327,6 +354,12 @@ class ProxyControlWorkflowTest {
         @Override
         public void deliverLifecycle(String command, String requestId) {
             lifecycleDeliveries.add(command);
+        }
+
+        @Override
+        public AppliedStatus probeSessions() {
+            probeCount.incrementAndGet();
+            return probeResult;
         }
     }
 }

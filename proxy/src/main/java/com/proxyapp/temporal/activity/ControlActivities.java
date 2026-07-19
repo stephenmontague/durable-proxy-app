@@ -26,4 +26,14 @@ public interface ControlActivities {
      */
     @ActivityMethod(name = "DeliverLifecycle")
     void deliverLifecycle(String command, String requestId);
+
+    /**
+     * Read the proxy's LIVE applied state on demand — including each device's current persistent-TCP
+     * link state (UP/DOWN/CONNECTING) straight from the session objects in this JVM. Unlike
+     * {@link #reconcile}, it applies nothing and has no side effects; it just snapshots. Backs the
+     * {@code checkSessions} Update so the cloud can ask "is device X connected right now?" and get
+     * ground truth (not the last-reported read model) for one Action per call.
+     */
+    @ActivityMethod(name = "ProbeSessions")
+    AppliedStatus probeSessions();
 }

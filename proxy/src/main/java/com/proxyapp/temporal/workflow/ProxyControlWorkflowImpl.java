@@ -49,9 +49,17 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
                     .setRetryOptions(RetryOptions.newBuilder().setMaximumAttempts(0).build())
                     .build(),
             Map.of("DeliverLifecycle", ActivityOptions.newBuilder()
-                    .setStartToCloseTimeout(Duration.ofSeconds(15))
-                    .setRetryOptions(RetryOptions.newBuilder().setMaximumAttempts(1).build())
-                    .build()));
+                            .setStartToCloseTimeout(Duration.ofSeconds(15))
+                            .setRetryOptions(RetryOptions.newBuilder().setMaximumAttempts(1).build())
+                            .build(),
+                    // ProbeSessions is an on-demand read behind a synchronous checkSessions Update, so
+                    // it must fail FAST when the proxy is unreachable (surfacing "proxy down") instead
+                    // of retrying forever like reconcile.
+                    "ProbeSessions", ActivityOptions.newBuilder()
+                            .setStartToCloseTimeout(Duration.ofSeconds(5))
+                            .setScheduleToCloseTimeout(Duration.ofSeconds(10))
+                            .setRetryOptions(RetryOptions.newBuilder().setMaximumAttempts(2).build())
+                            .build()));
 
     private final ProxyControlState state;
 
@@ -247,6 +255,16 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
         // reconcile loop. Return desired version so the proxy can detect drift and self-heal.
         state.setApplied(status);
         return state.getVersion();
+    }
+
+    @Override
+    public AppliedStatus checkSessions() {
+        // On-demand live probe: ask the proxy worker for its current session state, refresh the stored
+        // applied snapshot (so cheap getState readers benefit too), and return the live result. Like
+        // reportApplied this is observability only — no version bump, no reconcile wake.
+        AppliedStatus live = activities.probeSessions();
+        state.setApplied(live);
+        return live;
     }
 
     @Override

@@ -42,4 +42,12 @@ public class ControlActivitiesImpl implements ControlActivities {
     public void deliverLifecycle(String command, String requestId) {
         lifecycleController.deliver(command, requestId);
     }
+
+    @Override
+    public AppliedStatus probeSessions() {
+        // Pure live read: snapshot() reads the volatile per-session state directly from the in-process
+        // TcpSessionManager. No apply, no syncBaseline — a probe must not mutate reconcile state or
+        // suppress the link-health transition timer.
+        return reporter.snapshot();
+    }
 }
