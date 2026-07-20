@@ -3,6 +3,7 @@ import com.proxyapp.ingress.InboundGateway;
 import com.proxyapp.ingress.IngressException;
 
 import com.proxyapp.routing.model.Transport;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,11 +37,17 @@ public class HttpIngressController {
                     "duplicate", result.duplicate()));
         } catch (IngressException e) {
             HttpStatus status = switch (e.reason()) {
-                case DISABLED -> HttpStatus.SERVICE_UNAVAILABLE;
+                // Both are transient/retryable: the install is paused, or we couldn't reach Temporal.
+                case DISABLED, UPSTREAM_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
                 case UNKNOWN_CHANNEL -> HttpStatus.NOT_FOUND;
                 case UNRESOLVED_TYPE -> HttpStatus.BAD_REQUEST;
             };
-            return ResponseEntity.status(status).body(Map.of("error", e.getMessage()));
+            ResponseEntity.BodyBuilder builder = ResponseEntity.status(status);
+            if (status == HttpStatus.SERVICE_UNAVAILABLE) {
+                // Signal the device to back off and retry rather than treat it as a permanent failure.
+                builder.header(HttpHeaders.RETRY_AFTER, "5");
+            }
+            return builder.body(Map.of("error", e.getMessage()));
         }
     }
 }
