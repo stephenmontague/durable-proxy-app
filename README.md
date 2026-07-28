@@ -6,8 +6,10 @@ backbone. One proxy per install, **egress-only** (the edge site opens no inbound
 operator-configurable at runtime with **no redeploys**.
 
 This README is a guide for **forking the project and wiring it to your own cloud app**. For the
-full design rationale see [PLAN.md](PLAN.md). Runnable reference cloud/edge apps and the **Switchyard**
-operations UI — working examples of everything described here — live in the companion
+full design rationale see [PLAN.md](PLAN.md); for the roads not taken and how to adapt the design to
+your own use case, see [docs/design-alternatives.md](docs/design-alternatives.md). Runnable
+reference cloud/edge apps and the **Switchyard** operations UI — working examples of everything
+described here — live in the companion
 [**durable-proxy-app-demo**](https://github.com/stephenmontague/durable-proxy-app-demo) repo.
 
 ---
@@ -67,13 +69,13 @@ flowchart LR
 
 ## Repo layout
 
-| Path                   | What it is                                                          |
-| ---------------------- | ------------------------------------------------------------------ |
-| [`proxy/`](proxy/)     | The connector itself — the only Temporal worker, egress-only       |
-| [`scripts/`](scripts/) | `proxy-supervisor.sh` — restart-on-exit wrapper for remote restarts |
-| [`docs/`](docs/)       | Design deep-dives (architecture, persistent TCP sessions)          |
-| [`PLAN.md`](PLAN.md)   | Design-of-record and rationale                                     |
-| [`justfile`](justfile) | Build + run recipes (`just build`, `just run-proxy`, …)            |
+| Path                   | What it is                                                                                      |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| [`proxy/`](proxy/)     | The connector itself — the only Temporal worker, egress-only                                    |
+| [`scripts/`](scripts/) | `proxy-supervisor.sh` — restart-on-exit wrapper for remote restarts                             |
+| [`docs/`](docs/)       | Design deep-dives — [design alternatives](docs/design-alternatives.md), persistent TCP sessions |
+| [`PLAN.md`](PLAN.md)   | Design-of-record and rationale                                                                  |
+| [`justfile`](justfile) | Build + run recipes (`just build`, `just run-proxy`, …)                                         |
 
 The root [pom.xml](pom.xml) is a thin Maven aggregator over `proxy/` — `mvn package` builds the proxy jar.
 
@@ -190,17 +192,17 @@ boolean accepted = after.get("lastError").isNull();          // version bumped w
 
 </details>
 
-| Name                                      | Kind   | Payload → returns                          | Effect                                                                                                        |
-| ----------------------------------------- | ------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `enable` / `disable`                      | Update | — → state                                  | Soft on/off of the data plane (listeners + outbound; control stays up)                                        |
-| `applyConfig`                             | Update | `EdgeConfig[]` → state                     | Replace the full device/routing config                                                                        |
-| `upsertDevice` / `removeDevice`           | Update | `EdgeConfig` / `deviceId` → state          | Add-or-replace / remove one device                                                                            |
-| `upsertMessageType` / `removeMessageType` | Update | `CatalogEntryDto` / `type` → state         | Add-or-replace / remove one message type                                                                      |
-| `importCatalog`                           | Update | `CatalogEntryDto[]` → state                | Replace the whole message catalog                                                                             |
-| `requestReconcile`                        | Signal | —                                          | Re-apply desired state now (manual repair / boot sync / drift self-heal)                                      |
-| `requestRestart` / `requestShutdown`      | Signal | —                                          | Graceful proxy exit (restart relaunches via supervisor)                                                       |
-| `ackLifecycle`                            | Signal | `requestId` (string)                       | **Sent by the proxy** — clears a lifecycle command durably before it exits                                    |
-| `reportApplied`                           | Update | `AppliedStatus` → desired `version` (long) | **Sent by the proxy** — pushes link-health transitions between reconciles; the return lets it detect drift    |
+| Name                                      | Kind   | Payload → returns                          | Effect                                                                                                                                |
+| ----------------------------------------- | ------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `enable` / `disable`                      | Update | — → state                                  | Soft on/off of the data plane (listeners + outbound; control stays up)                                                                |
+| `applyConfig`                             | Update | `EdgeConfig[]` → state                     | Replace the full device/routing config                                                                                                |
+| `upsertDevice` / `removeDevice`           | Update | `EdgeConfig` / `deviceId` → state          | Add-or-replace / remove one device                                                                                                    |
+| `upsertMessageType` / `removeMessageType` | Update | `CatalogEntryDto` / `type` → state         | Add-or-replace / remove one message type                                                                                              |
+| `importCatalog`                           | Update | `CatalogEntryDto[]` → state                | Replace the whole message catalog                                                                                                     |
+| `requestReconcile`                        | Signal | —                                          | Re-apply desired state now (manual repair / boot sync / drift self-heal)                                                              |
+| `requestRestart` / `requestShutdown`      | Signal | —                                          | Graceful proxy exit (restart relaunches via supervisor)                                                                               |
+| `ackLifecycle`                            | Signal | `requestId` (string)                       | **Sent by the proxy** — clears a lifecycle command durably before it exits                                                            |
+| `reportApplied`                           | Update | `AppliedStatus` → desired `version` (long) | **Sent by the proxy** — pushes link-health transitions between reconciles; the return lets it detect drift                            |
 | `getState`                                | Query  | → `ProxyControlState`                      | Desired state `{enabled, devices, catalogEntries, typeDirections, version, lastError, applied}` — hydrates the read model, not polled |
 
 > **Tip — don't query Temporal on every UI read.** Temporal Queries are billable Actions. The
@@ -442,12 +444,12 @@ service impls (so `codec/` and `profile/` have no `model/`).
 
 ## Per-transport reliability profile
 
-| Transport                      | Inbound (edge → proxy)                                                                                                                                                      | Outbound (proxy → edge)                                                                                                                                                             |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **HTTP**                       | Device gets `202` only after Temporal accepted the enqueue (`503` while disabled, `404` unbound channel). Relies on device retry until acked.                               | Non-2xx fails the activity → Temporal retries. Device should treat repeated POSTs of the same business id as idempotent.                                                            |
-| **TCP**                        | `ACK <activityId>` written only after enqueue; `ERR …` otherwise. Relies on device retry until acked.                                                                       | Send fails unless the device answers `ACK` → Temporal retries. Raw TCP has no store-and-forward of its own.                                                                         |
-| **TCP (custom wire protocol)** | Per-device/per-binding `tcpProtocol`: start/stop frame delimiters (MLLP-style, multiple frames per socket, per-frame ack-after-enqueue) and custom ACK/NAK reply templates. | Framed sends with a configurable expected ack (contains-match), or fire-and-forget for silent devices. See the PLAN.md wire-protocol appendix. |
-| **FTP**                        | Store-and-forward: files persist in the drop folder until consumed (deleted) after a successful enqueue; failed files are re-swept on the next reconcile.                   | Upload uses temp-name-then-rename so the device never sees partial files; the deterministic filename (`{activityId}.json`) makes activity retries overwrite, not duplicate.         |
+| Transport                      | Inbound (edge → proxy)                                                                                                                                                      | Outbound (proxy → edge)                                                                                                                                                     |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **HTTP**                       | Device gets `202` only after Temporal accepted the enqueue (`503` while disabled, `404` unbound channel). Relies on device retry until acked.                               | Non-2xx fails the activity → Temporal retries. Device should treat repeated POSTs of the same business id as idempotent.                                                    |
+| **TCP**                        | `ACK <activityId>` written only after enqueue; `ERR …` otherwise. Relies on device retry until acked.                                                                       | Send fails unless the device answers `ACK` → Temporal retries. Raw TCP has no store-and-forward of its own.                                                                 |
+| **TCP (custom wire protocol)** | Per-device/per-binding `tcpProtocol`: start/stop frame delimiters (MLLP-style, multiple frames per socket, per-frame ack-after-enqueue) and custom ACK/NAK reply templates. | Framed sends with a configurable expected ack (contains-match), or fire-and-forget for silent devices. See the PLAN.md wire-protocol appendix.                              |
+| **FTP**                        | Store-and-forward: files persist in the drop folder until consumed (deleted) after a successful enqueue; failed files are re-swept on the next reconcile.                   | Upload uses temp-name-then-rename so the device never sees partial files; the deterministic filename (`{activityId}.json`) makes activity retries overwrite, not duplicate. |
 
 Common to all: **`{messageType}-{businessId}`** (Workflow ID outbound, Activity ID inbound) collapses
 duplicates into one execution. Outbound sends run inside activities and must tolerate redelivery.

@@ -9,7 +9,9 @@ public class IngressException extends RuntimeException {
         /** No inbound binding for this channel. */
         UNKNOWN_CHANNEL,
         /** Multi-type channel and the resolver could not determine a type. */
-        UNRESOLVED_TYPE
+        UNRESOLVED_TYPE,
+        /** Couldn't durably enqueue to Temporal (unreachable/timeout after SDK retries); edge should retry. */
+        UPSTREAM_UNAVAILABLE
     }
 
     private final Reason reason;

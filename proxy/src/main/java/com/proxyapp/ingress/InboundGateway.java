@@ -111,7 +111,15 @@ public class InboundGateway {
         if (entry == null) {
             return; // could not type the frame (already logged); drop it, keep the link up
         }
-        enqueue(entry, raw, "device '" + config.deviceId() + "' session");
+        try {
+            enqueue(entry, raw, "device '" + config.deviceId() + "' session");
+        } catch (IngressException e) {
+            // Best-effort for unsolicited session telemetry: if the enqueue fails (e.g. Temporal
+            // unavailable), drop this frame and keep the persistent link up — tearing the socket
+            // down would help nothing, and the device pushes fresh readings on its own cadence.
+            log.warn("dropping session frame from device {} ({}): {}",
+                    config.deviceId(), e.reason(), e.getMessage());
+        }
     }
 
     /** Type a session frame via its resolver (content rule), mapping the result to a catalog entry. */
@@ -153,6 +161,14 @@ public class InboundGateway {
             // Already delivered (or in flight) — still ack so the device stops retrying.
             log.info("duplicate push for {} ignored", activityId);
             return new EnqueueResult(activityId, true);
+        } catch (Exception e) {
+            // Decoding already succeeded above, so a failure here is the enqueue-to-Temporal call
+            // itself — unreachable/timeout after the SDK's own gRPC retries. Surface it as a
+            // retryable upstream error so the transport does NOT ack (HTTP 503, TCP nak, FTP keeps
+            // the file); the device retries and nothing is silently dropped.
+            log.warn("could not enqueue {} from {}: {}", activityId, source, e.toString());
+            throw new IngressException(IngressException.Reason.UPSTREAM_UNAVAILABLE,
+                    "could not enqueue to Temporal: " + e.getMessage());
         }
     }
 
