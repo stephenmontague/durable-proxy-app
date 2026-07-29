@@ -35,18 +35,41 @@ The **only** config the host needs; everything operational is pushed from the cl
 | `SERVER_PORT` | `server.port` | HTTP ingress port (default `8090`) |
 | `PROXY_INGRESS_TCP_PORT_POOL` | `proxy.ingress.tcp-port-pool` | Inbound TCP ports IT allocated (default `6000-6010`) |
 | `PROXY_INGRESS_FTP_PORT` / `…FTP_ROOT` / `…FTP_USER` / `…FTP_PASSWORD` | `proxy.ingress.ftp-*` | FTP ingress; set `ftp-root` to an **absolute writable path** (a service's working dir is not the repo) |
-| `PROXY_SUPERVISED` | — | Set to `true` **by the supervisor** (see §4), not by hand |
+| `PROXY_SUPERVISED` | — | Set to `true` **by the supervisor** (see §5), not by hand |
 
 > **Namespace-per-install is the isolation model.** Each customer gets their own Temporal namespace + mTLS creds, so a compromised edge box's credentials reach only that customer's own namespace and data. Provisioning the namespace + certs is a **cloud-side** step (out of this repo).
 
-## 3. Network / firewall
+## 3. Packaging: what to bake in vs. provide per install
+
+Once you fork this, you'll wrap the jar (+ a JRE) into an installer — a `jpackage` `.msi` / `.pkg` / `.deb`, or a zip plus a service-registration script. `application.yml` already ships *inside* the jar, and Spring's override order (**command-line args > env vars > an external `application.yml` beside the executable > the baked-in one**) lets a package carry the shared defaults while a per-install file supplies the rest. Split the config three ways:
+
+- **Bake in — identical for every customer:** ports, task-queue names, `profile: empty`, logging, ftp defaults, `spring.profiles.active=cloud`, and **`PROXY_CLOUD_BASE_URL`** (your cloud app's API). The customer never sees these.
+- **Provide per install — non-secret:** `TEMPORAL_NAMESPACE` and `TEMPORAL_TARGET` (the `<ns-id>` is per-namespace).
+- **Provide per install — secret:** the mTLS **cert + private key**.
+
+Two patterns get you to "the customer just runs it":
+
+**A — per-client build.** Set that client's namespace/target/certs, package, deliver, done. Simplest, and fine for a handful of customers with long-lived certs. **Caveat: the installer now *contains a live credential*,** so treat the artifact itself as a secret:
+
+- deliver it over a secure channel to that one customer — never a public release page, shared artifact repo, or casual email;
+- lock the key file down on the box (owner-only `0600` / a tight Windows ACL or DPAPI);
+- have a **revoke + re-issue** path for a leaked or compromised box;
+- remember mTLS certs **expire** — a baked-in cert means re-packaging and re-shipping when it rolls over.
+
+This is why baking creds into a *shared* binary is wrong on two counts: each customer differs, and it collapses the namespace-per-install isolation (one leaked binary would expose every customer's namespace). Per-client builds keep one credential per artifact — acceptable, as long as the artifact is handled as the secret it now is.
+
+**B — generic build + enrollment.** Ship one universal installer with **no creds**. On first run the operator pastes a **one-time enrollment token**; the proxy calls *your* provisioning API to fetch its namespace + **short-lived certs**, writes them locally, and connects. No secret in the artifact, no per-customer builds, and certs rotate on their own — at the cost of building the provisioning endpoint. This is the better default once you have many customers or short-lived certs.
+
+Either way, "run the executable" also has to **register the supervised service** (§5) so boot-start and remote restart work — a `jpackage` MSI can register a Windows service, or your install script does it. The executable is really an *installer*: it drops config (or enrolls), registers the service, and starts it.
+
+## 4. Network / firewall
 
 Two directions matter, and "egress-only" only describes one of them:
 
 - **Outbound (WAN) — required.** The host must reach **Temporal Cloud** (gRPC, `:7233`) and **your cloud app's API**. That is the *entire* internet-facing surface — **no inbound ports from the internet.** This is the pitch to the customer's IT.
 - **Inbound on the LAN — required for device ingress.** Devices on the local network connect **into** the proxy's listeners (HTTP `8090`, the TCP pool, FTP `2221`). So the **host firewall needs LAN inbound rules** for those ports. Egress-only is about the internet boundary; device→proxy traffic is still inbound *on the LAN*. (If the proxy dials the device instead — CLIENT-role TCP / persistent sessions — that leg is outbound on the LAN and needs no inbound rule.)
 
-## 4. Run it under a supervisor
+## 5. Run it under a supervisor
 
 The remote **RESTART / SHUTDOWN** buttons work by the proxy exiting the JVM with a specific code and the supervisor reacting to it (full mechanism in [internals.md](internals.md#lifecycle--remote-restart)):
 
@@ -162,7 +185,7 @@ nssm start DurableProxy
 
 > Run the service under a dedicated low-privilege account, start it on boot, and capture stdout/stderr to a rolling log file (the operator has no console).
 
-## 5. First connect, then configure
+## 6. First connect, then configure
 
 1. **Provision** the customer's Temporal namespace + mTLS certs (cloud-side).
 2. **Install:** put the jar + JRE + certs on the box, drop the config, register the service with `PROXY_SUPERVISED=true`, start it.
@@ -170,7 +193,7 @@ nssm start DurableProxy
 4. From **your** cloud / Switchyard UI, define the message catalog + devices → pushed as Updates → the proxy **hot-applies** them (opens LAN listeners / dials devices). The customer configures nothing.
 5. **Remote restart / shutdown** from the UI now works because the process is supervised.
 
-## 6. Operating it remotely
+## 7. Operating it remotely
 
 - **Diagnose without logging in.** Persistent-link drop reasons (`lastError`, recent transitions) ride back to your cloud UI, so you can triage a customer's edge link without RDP/SSH into their box.
 - **Logs.** The service captures stdout/stderr; to watch a persistent TCP link breathe, raise `--logging.level.heartbeat=INFO` temporarily.
