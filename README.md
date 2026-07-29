@@ -9,6 +9,7 @@ This README gets you oriented and running. For the rest:
 | To…                                                              | See                                                                                 |
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | Wire your own cloud app to the proxy                             | [docs/integration.md](docs/integration.md)                                          |
+| Deploy it to an edge host (Windows / macOS / Linux)              | [docs/deploy.md](docs/deploy.md)                                                    |
 | Understand hot reload, versioning, and per-transport reliability | [docs/internals.md](docs/internals.md)                                              |
 | See the roads not taken and how to adapt the design              | [docs/design-alternatives.md](docs/design-alternatives.md)                          |
 | Run a one-command end-to-end demo (cloud + edge + Switchyard UI) | [durable-proxy-app-demo](https://github.com/stephenmontague/durable-proxy-app-demo) |

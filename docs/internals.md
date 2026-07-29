@@ -25,6 +25,15 @@ Because the catalog and devices are _data_, most real-world change is config (si
 
 `requestRestart` / `requestShutdown` set a durable lifecycle command on the workflow, which pushes it to the proxy as a one-shot `deliverLifecycle` activity. The proxy's [`LifecycleController`](../proxy/src/main/java/com/proxyapp/control/LifecycleController.java) acks it (so a relaunched proxy won't replay it), then exits the JVM on a short delay — code `10` for restart, `0` for shutdown. [`scripts/proxy-supervisor.sh`](../scripts/proxy-supervisor.sh) relaunches on exit `10` and stays down otherwise. Run the proxy under the supervisor (`just run-proxy-managed`) to enable the UI's RESTART button. All of this rides the proxy's existing egress gRPC — nothing dials in.
 
+#### The supervisor contract (how "remote restart" actually restarts)
+
+The proxy can't relaunch itself once the JVM exits, so an external **supervisor** does it. Crucially the code **never calls the supervisor** — it's the inverse: the supervisor *wraps* the JVM (launches `java -jar` in a loop) and the two communicate only across the **process boundary**, over two channels:
+
+- **Exit code (JVM → supervisor).** `LifecycleController` maps the command to a code — `10` (`RESTART_EXIT_CODE`) for restart, `0` for shutdown — and calls `System.exit(code)`. The supervisor's loop reads `$?`: on `10` it re-loops and relaunches; on anything else it exits and stays down. "Restart me" is expressed purely by *how the process exits* — there is no RPC or callback.
+- **`PROXY_SUPERVISED` env var (supervisor → JVM).** The supervisor exports `PROXY_SUPERVISED=true`; the proxy reads it (`LifecycleController`, `AppliedStatusReporter`) to know a supervisor exists. If it's unset, the proxy logs *"no supervisor detected — nothing will relaunch me"* and reports un-supervised status, so the **Switchyard UI warns before RESTART** rather than silently killing a proxy that won't come back.
+
+Because the contract is just "relaunch on exit 10, set `PROXY_SUPERVISED`," the dev-only [`proxy-supervisor.sh`](../scripts/proxy-supervisor.sh) is a stand-in for **systemd** (`Restart=on-failure`) or a Windows service in production — the proxy code knows nothing about which one is wrapping it. The script also runs from a **copied jar** (`proxy-app-run.jar`), so you can rebuild the original jar under a running proxy and have the next RESTART pick up the new build — i.e. "rebuild, then hit RESTART in the UI" behaves like a real redeploy.
+
 ---
 
 ## Architecture map (proxy module)
