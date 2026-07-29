@@ -9,6 +9,7 @@ import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.model.RouteBinding;
 import com.proxyapp.routing.model.Transport;
 import com.proxyapp.session.model.DeviceSessionStatus;
+import com.proxyapp.session.model.SessionEvent;
 import com.proxyapp.temporal.activity.ControlActivities;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowOptions;
@@ -202,11 +203,16 @@ class ProxyControlWorkflowTest {
         assertThat(live.sessions()).hasSize(1);
         assertThat(live.sessions().get(0).deviceId()).isEqualTo("gateway-1");
         assertThat(live.sessions().get(0).state()).isEqualTo("UP");
+        // the diagnostics (why/when + recent-events history) survive the round trip over the wire
+        assertThat(live.sessions().get(0).lastTransitionAt()).isEqualTo("2026-06-11T12:00:00Z");
+        assertThat(live.sessions().get(0).recentEvents()).hasSize(1);
+        assertThat(live.sessions().get(0).recentEvents().get(0).detail()).contains("link up");
 
         // the live result is recorded into applied so cheap getState readers benefit too ...
         AppliedStatus stored = workflow.getState().getApplied();
         assertThat(stored.sessions()).hasSize(1);
         assertThat(stored.sessions().get(0).state()).isEqualTo("UP");
+        assertThat(stored.sessions().get(0).recentEvents()).hasSize(1);
         // ... but a probe is observability only — it must not bump the desired version
         assertThat(workflow.getState().getVersion()).isEqualTo(versionBefore);
     }
@@ -341,7 +347,10 @@ class ProxyControlWorkflowTest {
         // The live snapshot the on-demand probe returns — a device UP by default.
         volatile AppliedStatus probeResult = new AppliedStatus(0, true,
                 List.of(), List.of(), List.of(), "t", "t", false,
-                List.of(new DeviceSessionStatus("gateway-1", "CLIENT", "UP", "2026-06-11T12:00:00Z", 0)));
+                List.of(new DeviceSessionStatus("gateway-1", "CLIENT", "UP", "2026-06-11T12:00:00Z", 0,
+                        null, "2026-06-11T12:00:00Z",
+                        List.of(new SessionEvent("2026-06-11T12:00:00Z", "UP",
+                                "link up (/10.0.0.5:9100)")))));
 
         @Override
         public AppliedStatus reconcile(ProxyControlState desired) {
