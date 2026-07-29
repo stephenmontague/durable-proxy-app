@@ -23,41 +23,45 @@ This is the second of the two standard device-integration paradigms. The proxy a
 ## Core principle: separate "owning the link" from "delivering a message"
 
 - **Session layer** (long-lived, in the proxy process) owns the socket(s), heartbeats, reconnect, and liveness. **Heartbeats never enter Temporal** — they're ephemeral, high-frequency link-keepalive, not message delivery.
-- **Temporal layer**: each message is still a durable `DeliverToEdge` workflow → `TransmitToDevice` activity. The activity does *not* open a socket — it hands the payload to the session and awaits the device's correlated ack.
+- **Temporal layer**: each message is still a durable `DeliverToEdge` workflow → `TransmitToDevice` activity. The activity does _not_ open a socket — it hands the payload to the session and awaits the device's correlated ack.
 
 ## New components (proxy)
 
 ### `TcpSessionManager` (SmartLifecycle bean, mirrors `TcpSocketServer`/`FtpIngressListener`)
+
 - Holds `Map<String deviceId, DeviceSession>` — **this is the connection table**.
 - `reconcile(Collection<DeviceSessionConfig>)` — opens new sessions, closes removed ones, hot-updates changed ones (the same lifecycle hook the `Reconciler` already calls on `tcpSocketServer`/`ftpIngressListener`).
 - `send(deviceId, MessageType, byte[]) → ack/Future` — called by the outbound activity.
 - `statuses() → List<DeviceSessionStatus>` — feeds `AppliedStatus`.
 
 ### `DeviceSession` (one per device) — owns one persistent connection
+
 - **CLIENT role**: dials the device `host:port`; reconnects with backoff on drop.
 - **SERVER role**: the device dials in; the proxy holds the accepted socket. Bind socket↔device by a **per-device listen port** (unambiguous, recommended) or an identifying **handshake/first-frame** (port economy). Reuses the existing [`TcpSocketServer`](../proxy/src/main/java/com/proxyapp/ingress/TcpSocketServer.java) acceptor pattern.
 - **Heartbeat engine** (configurable, any combo): optional **outbound ping** (send `sendPayload` every `sendIntervalSec`, optionally require `expectReply` within `replyTimeoutMs`) and/or **inbound watchdog** (expect a device frame at least every `expectInboundSec`); `missThreshold` consecutive misses → DOWN.
 - **Read loop** demultiplexes inbound frames into three kinds: heartbeat (handled locally), **command responses** (matched to a pending send via correlation), and **unsolicited device→cloud messages** (→ start `DeliverToCloud`, exactly like today's inbound).
-- Framing reuses [`TcpProtocol`](../proxy/src/main/java/com/proxyapp/routing/TcpProtocol.java) (start/end delimiters) + `WireString`. State: CONNECTING / UP / DOWN, `lastHeartbeatAt`, in-flight count, reconnect attempts.
+- Framing reuses [`TcpProtocol`](../proxy/src/main/java/com/proxyapp/routing/model/TcpProtocol.java) (start/end delimiters) + `WireString`. State: CONNECTING / UP / DOWN, `lastHeartbeatAt`, in-flight count, reconnect attempts.
 
 ### Correlation (request/response over one shared socket)
-Configurable strategy — correlation-id echo, sequence number, or default **single-in-flight + contains-`expectedAck`** for simple devices. Needed so a send's activity gets *its* reply. Protocol-dependent; document per device.
+
+Configurable strategy — correlation-id echo, sequence number, or default **single-in-flight + contains-`expectedAck`** for simple devices. Needed so a send's activity gets _its_ reply. Protocol-dependent; document per device.
 
 ### Inbound type resolution
+
 One socket carries many types, so "channel = type" (port/path) no longer applies. Reuse the existing opt-in [`MessageTypeResolver`](../proxy/src/main/java/com/proxyapp/routing/MessageTypeResolver.java) SPI (header/tag/content rule) to map each inbound frame → `MessageType`, then `DeliverToCloud` as today. (This is exactly what that SPI was built for.)
 
 ## Outbound delivery path (Temporal — used by BOTH modes)
 
-**Every outbound message still rides a durable `DeliverToEdge` workflow → `TransmitToDevice` activity, in both modes.** Durability, queuing, retry/backoff, offline-tolerance, and exactly-once-ish dedup are identical regardless of mode. The *only* difference is the transport call **inside** the activity:
+**Every outbound message still rides a durable `DeliverToEdge` workflow → `TransmitToDevice` activity, in both modes.** Durability, queuing, retry/backoff, offline-tolerance, and exactly-once-ish dedup are identical regardless of mode. The _only_ difference is the transport call **inside** the activity:
 
 - **PER_MESSAGE:** activity → `connectorFactory.require(TCP).send(...)` (fresh socket per send, as today).
 - **PERSISTENT:** activity → `sessionManager.send(deviceId, type, payload)` (write onto the already-open, heartbeated socket; await the correlated ack).
 
-In both, activity completion = durable proof of delivery; failure/timeout → Temporal retry. For PERSISTENT, if the session is **DOWN** the activity retries with backoff and delivers when the link reconnects — the command waits durably in Temporal meanwhile (Temporal matters *more* here, not less). The persistent socket is owned by the long-lived `TcpSessionManager` *outside* any activity; the activity merely uses it as its transport.
+In both, activity completion = durable proof of delivery; failure/timeout → Temporal retry. For PERSISTENT, if the session is **DOWN** the activity retries with backoff and delivers when the link reconnects — the command waits durably in Temporal meanwhile (Temporal matters _more_ here, not less). The persistent socket is owned by the long-lived `TcpSessionManager` _outside_ any activity; the activity merely uses it as its transport.
 
 ## Config model (control-workflow state, UI-editable)
 
-Extend [`EdgeConfig`](../proxy/src/main/java/com/proxyapp/routing/EdgeConfig.java) with an optional **`TcpSession`** record (per device — the socket is per device):
+Extend [`EdgeConfig`](../proxy/src/main/java/com/proxyapp/routing/model/EdgeConfig.java) with an optional **`TcpSession`** record (per device — the socket is per device):
 
 - `mode`: `PER_MESSAGE` (default, today's behavior) | `PERSISTENT`
 - `role`: `CLIENT` (proxy dials `host:port`) | `SERVER` (device dials in; `listenPort` or handshake id)
@@ -70,11 +74,11 @@ Validation (`CatalogValidator`-style, **mirrored in `validate.ts`** byte-for-byt
 ## Control plane, reconcile, liveness
 
 - `Reconciler.apply()`: add `tcpSessionManager.reconcile(persistentDevices)` next to the existing `tcpSocketServer`/`ftpIngressListener` reconcile calls; disabled state → close all sessions.
-- [`AppliedStatus`](../proxy/src/main/java/com/proxyapp/control/AppliedStatus.java): add `List<DeviceSessionStatus> sessions` (deviceId, role, state, `lastHeartbeatAt`, inflight), reported via the existing `reportApplied` signal — per-device link health reaches the UI over the same egress path, no new inbound ports.
+- [`AppliedStatus`](../proxy/src/main/java/com/proxyapp/control/model/AppliedStatus.java): add `List<DeviceSessionStatus> sessions` (deviceId, role, state, `lastHeartbeatAt`, inflight, plus diagnostics: `lastError`, `lastTransitionAt`, and a bounded `recentEvents` history of `SessionEvent{at, state, detail}`), reported via the existing `reportApplied` signal — per-device link health *and the "why" of a drop* reach the UI over the same egress path, no new inbound ports. The proxy's local logs sit on an unreachable edge machine, so the diagnostics ride the wire instead. `reportApplied` still fires only on `state`/`lastError` transitions (not on every heartbeat), preserving the zero-Action design.
 
 ## UI — the connection table
 
-- **Config tab**: each device gains a **Connection** section — `mode` (per-message/persistent); if persistent: role, endpoint, heartbeat settings, correlation. The device list *is* the connection/routing table.
+- **Config tab**: each device gains a **Connection** section — `mode` (per-message/persistent); if persistent: role, endpoint, heartbeat settings, correlation. The device list _is_ the connection/routing table.
 - **Live status** per device from `AppliedStatus.sessions` — an UP/DOWN/CONNECTING lamp + last-heartbeat, like the existing proxy-liveness indicator but per device. Optional dedicated "Connections" panel summarizing all live sockets.
 
 ## Socket affinity
@@ -85,13 +89,13 @@ A session's socket lives in **one** proxy process, so the send activity must run
 
 The session manager is **rebuilt from durable inputs on restart, not persisted** — its state splits three ways:
 
-- **Desired/config state** (which devices, endpoints, heartbeat settings): already durable in `ProxyControlWorkflow`; the poller + `Reconciler` rebuild the session set from it on startup, exactly as listeners/routes/catalog are rebuilt today. No new storage.
+- **Desired/config state** (which devices, endpoints, heartbeat settings): already durable in `ProxyControlWorkflow`; on startup `ControlBootstrap` triggers a reconcile and the `Reconciler` rebuilds the session set from it, exactly as listeners/routes/catalog are rebuilt today. No new storage.
 - **Live runtime state** (open sockets, TCP sequence numbers, heartbeat timers, in-flight correlation map): **inherently ephemeral — cannot be serialized/rehydrated** into Temporal or anywhere. A socket is kernel/process state; on death the peer sees a RST. Recovery = **reconnect** (the `DeviceSession` backoff path); heartbeats resume; liveness re-reported.
 - **In-flight message deliveries**: already durable as their own `DeliverToEdge` workflows/activities. A crash mid-send → Temporal redelivers the activity on the restarted worker → it hands the payload to the freshly-reconnected session. Messages survive via Temporal; the socket is re-established; nothing is lost.
 
 So **don't store session contents in a workflow** — the socket part isn't storable, and the durable parts (config + in-flight messages) are already in Temporal. Restart recovery = the same reconcile-from-control-state loop the proxy already uses.
 
-**Temporal constraint:** a workflow can't hold a socket or do I/O (determinism), so the session manager can never *be* a workflow. *Optional enhancement:* a long-running per-device **session-supervisor workflow** could record liveness transitions (UP/DOWN), reconnect counts, and richer desired state for observability/alerting — a metadata record, not the connection (the socket stays in worker-process code). Even then, heartbeats never become workflow events; at most a DOWN/UP transition is signaled. Not required for correctness.
+**Temporal constraint:** a workflow can't hold a socket or do I/O (determinism), so the session manager can never _be_ a workflow. _Optional enhancement:_ a long-running per-device **session-supervisor workflow** could record liveness transitions (UP/DOWN), reconnect counts, and richer desired state for observability/alerting — a metadata record, not the connection (the socket stays in worker-process code). Even then, heartbeats never become workflow events; at most a DOWN/UP transition is signaled. Not required for correctness.
 
 ## Guarantees / non-goals
 
