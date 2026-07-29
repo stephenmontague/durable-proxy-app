@@ -2,6 +2,7 @@ package com.proxyapp.session;
 import com.proxyapp.session.model.DeviceSessionConfig;
 import com.proxyapp.session.model.DeviceSessionState;
 import com.proxyapp.session.model.DeviceSessionStatus;
+import com.proxyapp.session.model.SessionEvent;
 
 import com.proxyapp.routing.model.TcpProtocol;
 import com.proxyapp.routing.model.TcpSession;
@@ -18,7 +19,10 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Deque;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -59,6 +63,8 @@ final class DeviceSession {
     private static final int NOISE_COMPACT_THRESHOLD = 8 * 1024;
     /** Read wakeup granularity so the loop notices {@code closed} / shutdown promptly. */
     private static final int READ_IDLE_MS = 1_000;
+    /** Per-session transition history kept for remote diagnosis (bounded ring buffer). */
+    private static final int MAX_EVENTS = 10;
 
     private final DeviceSessionConfig config;
     private final ExecutorService connectExecutor;
@@ -88,6 +94,12 @@ final class DeviceSession {
     // Runtime state.
     private volatile boolean closed;
     private volatile DeviceSessionState state = DeviceSessionState.CONNECTING;
+    // Diagnostics surfaced in status() so the "why" of a drop rides the egress connection back to the
+    // cloud (the local logs are on an unreachable edge machine). Guarded by eventLock.
+    private final Object eventLock = new Object();
+    private final Deque<SessionEvent> events = new ArrayDeque<>();
+    private String lastError;        // reason of the most recent DOWN; cleared on UP, kept on CONNECTING
+    private long lastTransitionAtMs; // 0 = never
     private final AtomicReference<Socket> socket = new AtomicReference<>();
     private final AtomicReference<OutputStream> out = new AtomicReference<>();
     private final Object writeLock = new Object();
@@ -147,16 +159,55 @@ final class DeviceSession {
     }
 
     DeviceSessionStatus status() {
-        String hb = lastInboundAtMs == 0 ? null : Instant.ofEpochMilli(lastInboundAtMs).toString();
+        String hbAt = lastInboundAtMs == 0 ? null : Instant.ofEpochMilli(lastInboundAtMs).toString();
+        DeviceSessionState st;
+        String err;
+        String transitionAt;
+        List<SessionEvent> recent;
+        synchronized (eventLock) {
+            st = state;
+            err = lastError;
+            transitionAt = lastTransitionAtMs == 0
+                    ? null : Instant.ofEpochMilli(lastTransitionAtMs).toString();
+            recent = List.copyOf(events);
+        }
         return new DeviceSessionStatus(config.deviceId(), config.session().role().name(),
-                state.name(), hb, inflight.get());
+                st.name(), hbAt, inflight.get(), err, transitionAt, recent);
+    }
+
+    /**
+     * The single writer for {@link #state}. A no-op when the state is unchanged, so a specific fault
+     * reason recorded by one thread (e.g. "3 missed heartbeat(s)") is not clobbered by the read
+     * loop's follow-up DOWN. Stamps the transition, appends a bounded event, and tracks the reason:
+     * DOWN sets {@link #lastError}, UP clears it, CONNECTING preserves it (so a reconnecting link
+     * still explains its last drop).
+     */
+    private void transition(DeviceSessionState newState, String detail) {
+        synchronized (eventLock) {
+            if (newState == state) {
+                return;
+            }
+            state = newState;
+            lastTransitionAtMs = nowMs();
+            if (newState == DeviceSessionState.DOWN) {
+                lastError = detail;
+            } else if (newState == DeviceSessionState.UP) {
+                lastError = null;
+            }
+            events.addLast(new SessionEvent(
+                    Instant.ofEpochMilli(lastTransitionAtMs).toString(), newState.name(), detail));
+            while (events.size() > MAX_EVENTS) {
+                events.removeFirst();
+            }
+        }
     }
 
     void start() {
         if (role == TcpSession.Role.CLIENT) {
             connectExecutor.execute(this::runClientLoop);
         } else {
-            state = DeviceSessionState.CONNECTING; // SERVER: wait for the acceptor to hand us a socket
+            // SERVER: wait for the acceptor to hand us a socket
+            transition(DeviceSessionState.CONNECTING, "awaiting device dial-in");
         }
         if (pingFrame != null) {
             long periodMs = sendIntervalSec * 1_000L;
@@ -222,7 +273,7 @@ final class DeviceSession {
                 }
             }
         } catch (IOException e) {
-            markDownAndReconnect();
+            markDownAndReconnect("send failed: " + e.getMessage());
             throw new SessionSendException("device " + config.deviceId() + " send failed: " + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -243,8 +294,10 @@ final class DeviceSession {
         long backoff = minBackoffMs;
         while (!closed) {
             Socket s = null;
+            String dropReason = "peer closed connection";
             try {
-                state = DeviceSessionState.CONNECTING;
+                transition(DeviceSessionState.CONNECTING,
+                        "dialing " + config.host() + ":" + config.session().port());
                 s = new Socket();
                 s.connect(new InetSocketAddress(config.host(), config.session().port()), connectTimeoutMs);
                 s.setSoTimeout(READ_IDLE_MS);
@@ -252,6 +305,7 @@ final class DeviceSession {
                 backoff = minBackoffMs; // a good connect resets the backoff
                 readLoop(s);
             } catch (IOException e) {
+                dropReason = "connect/read ended: " + e.getMessage();
                 if (!closed) {
                     log.debug("device {} connect/read ended: {}", config.deviceId(), e.getMessage());
                 }
@@ -260,7 +314,7 @@ final class DeviceSession {
                 socket.compareAndSet(s, null);
                 out.set(null);
                 if (!closed) {
-                    state = DeviceSessionState.DOWN;
+                    transition(DeviceSessionState.DOWN, dropReason);
                 }
             }
             if (closed) {
@@ -287,11 +341,13 @@ final class DeviceSession {
     }
 
     private void serve(Socket s) {
+        String dropReason = "peer closed connection";
         try {
             s.setSoTimeout(READ_IDLE_MS);
             onConnected(s);
             readLoop(s);
         } catch (IOException e) {
+            dropReason = "session read ended: " + e.getMessage();
             if (!closed) {
                 log.debug("device {} session read ended: {}", config.deviceId(), e.getMessage());
             }
@@ -300,7 +356,7 @@ final class DeviceSession {
             socket.compareAndSet(s, null);
             out.set(null);
             if (!closed) {
-                state = DeviceSessionState.DOWN;
+                transition(DeviceSessionState.DOWN, dropReason);
             }
         }
     }
@@ -313,7 +369,7 @@ final class DeviceSession {
         pingOutstanding = false;
         beats = 0;
         connectedAtMs = nowMs();
-        state = DeviceSessionState.UP;
+        transition(DeviceSessionState.UP, "link up (" + s.getRemoteSocketAddress() + ")");
         log.info("device {} session UP ({})", config.deviceId(), s.getRemoteSocketAddress());
     }
 
@@ -400,7 +456,7 @@ final class DeviceSession {
             }
         } catch (IOException e) {
             log.debug("device {} ping write failed: {}", config.deviceId(), e.getMessage());
-            markDownAndReconnect();
+            markDownAndReconnect("ping write failed: " + e.getMessage());
         }
     }
 
@@ -429,7 +485,7 @@ final class DeviceSession {
         log.debug("device {} heartbeat miss {}/{}", config.deviceId(), m, missThreshold);
         if (m >= missThreshold) {
             log.warn("device {} link DOWN after {} missed heartbeat(s)", config.deviceId(), m);
-            markDownAndReconnect();
+            markDownAndReconnect("link down after " + m + " missed heartbeat(s)");
         }
     }
 
@@ -444,8 +500,8 @@ final class DeviceSession {
         return 0;
     }
 
-    private void markDownAndReconnect() {
-        state = DeviceSessionState.DOWN;
+    private void markDownAndReconnect(String reason) {
+        transition(DeviceSessionState.DOWN, reason);
         closeSocket(socket.get()); // unblocks the read loop, which then reconnects with backoff
     }
 

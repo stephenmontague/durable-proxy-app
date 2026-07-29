@@ -135,10 +135,14 @@ public class AppliedStatusReporter {
         return workflowClient.newWorkflowStub(ProxyControlWorkflow.class, ProxyControlWorkflow.WORKFLOW_ID);
     }
 
-    /** deviceId:state pairs only — flips on link transitions, not on every heartbeat. */
+    /**
+     * deviceId:state:lastError triples — flips on link transitions and on a changed drop reason
+     * (so the "why" gets pushed), but NOT on every heartbeat, preserving the zero-Action design.
+     * Intentionally excludes lastTransitionAt/recentEvents/heartbeat timestamps, which would churn.
+     */
     private static String sessionSignature(List<DeviceSessionStatus> sessions) {
         return String.join(",", sessions.stream()
-                .map(s -> s.deviceId() + ":" + s.state())
+                .map(s -> s.deviceId() + ":" + s.state() + ":" + s.lastError())
                 .toList());
     }
 }

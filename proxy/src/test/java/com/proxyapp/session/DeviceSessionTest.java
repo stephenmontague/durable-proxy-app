@@ -76,6 +76,10 @@ class DeviceSessionTest {
             session.start();
             awaitTrue(() -> connections.get() >= 2, 4_000); // it dialed again after the drop
             awaitState(session, DeviceSessionState.UP, 3_000);
+            // lastError clears once the link is back UP; the drop is still in the event history
+            assertThat(session.status().lastError()).isNull();
+            assertThat(session.status().recentEvents())
+                    .anySatisfy(e -> assertThat(e.state()).isEqualTo("DOWN"));
             session.close();
         }
     }
@@ -88,6 +92,12 @@ class DeviceSessionTest {
             session.start();
             awaitState(session, DeviceSessionState.UP, 2_000);
             awaitState(session, DeviceSessionState.DOWN, 6_000);
+            // the "why" rides in the status (not just the unreachable local log)
+            assertThat(session.status().lastError()).contains("missed heartbeat");
+            assertThat(session.status().recentEvents()).anySatisfy(e -> {
+                assertThat(e.state()).isEqualTo("DOWN");
+                assertThat(e.detail()).contains("missed heartbeat");
+            });
             session.close();
         }
     }
@@ -113,6 +123,7 @@ class DeviceSessionTest {
             session.start();
             awaitState(session, DeviceSessionState.UP, 2_000);
             awaitState(session, DeviceSessionState.DOWN, 6_000);
+            assertThat(session.status().lastError()).contains("missed heartbeat");
             session.close();
         }
     }

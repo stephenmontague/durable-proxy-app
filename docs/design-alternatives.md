@@ -1,6 +1,10 @@
 # Design Alternatives & Adapting the Proxy
 
-This proxy makes specific design choices, and most of them were tradeoffs rather than the only option. This document lists the significant ones so you can adapt the proxy to your own constraints — and so the reasoning is on record. Each entry follows the same shape:
+This proxy makes specific design choices, and most of them were tradeoffs rather than the only option. This document lists the significant ones so you can adapt the proxy to your own constraints — and so the reasoning is on record.
+
+> **Design rationale of record.** This is the deepest "why it's built this way" reference for the proxy — the durable record of the tradeoffs behind the current design. For what the proxy is and how to run it, see the [README](../README.md); for how the pieces work (control plane, hot reload, per-transport reliability), see [internals.md](internals.md); this document is the layer beneath those — why each of those choices was made, and what you'd change to choose differently.
+
+Each entry follows the same shape:
 
 - **Decision** — what the code does today
 - **Why** — the reasoning behind it
