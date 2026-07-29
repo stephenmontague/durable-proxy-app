@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Restart-on-exit supervisor for the proxy. The cloud's "restart" lifecycle command makes
-# the proxy exit with code 10 (ProxyControlPoller.RESTART_EXIT_CODE) — we relaunch it.
+# the proxy exit with code 10 (LifecycleController.RESTART_EXIT_CODE) — we relaunch it.
 # Any other exit code (including 0 from a "shutdown" command) stays down.
 # In production this role is played by systemd / a Windows service with Restart=on-failure.
 set -u
