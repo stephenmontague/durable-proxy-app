@@ -8,9 +8,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Port-pool parsing. This is site infrastructure IT sets once at install, and it is read at boot
- * from a Spring bean — so a malformed value has to name the property and the offending token
- * rather than surface a bare NumberFormatException.
+ * Port-pool parsing. This is site infrastructure IT sets once at install. A malformed value has to
+ * fail during property binding — like every sibling field in the record — and name the property
+ * and the offending token, rather than surfacing later as a bare NumberFormatException from inside
+ * the bootstrap retry loop.
  */
 class ProxyPropertiesTest {
 
@@ -64,6 +65,31 @@ class ProxyPropertiesTest {
         assertThatThrownBy(() -> pool("6010-6000"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("runs backwards");
+    }
+
+    @Test
+    void aMalformedPoolIsRejectedWhenIngressIsConstructed() {
+        // The binding-time guarantee: constructing Ingress alone is enough to fail, so Spring
+        // rejects bad config at startup rather than at first use.
+        assertThatThrownBy(() -> new ProxyProperties.Ingress("nope", 2221, "./data", "u", "p"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("proxy.ingress.tcp-port-pool");
+    }
+
+    @Test
+    void duplicatePortsAreCollapsedAndOrderIsKept() {
+        assertThat(pool("6002,6000,6002,6001")).containsExactly(6002, 6000, 6001);
+        assertThat(pool("6000-6002,6001")).containsExactly(6000, 6001, 6002);
+    }
+
+    @Test
+    void anAbsurdlyWideRangeIsRejectedAsALikelyTypo() {
+        // 6000-65535 is one keystroke from 6000-6535, and the expanded list is seeded into
+        // control-workflow state, so a runaway range is worth catching rather than storing.
+        assertThatThrownBy(() -> pool("6000-65535"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("mistyped range end");
+        assertThat(pool("6000-7023")).hasSize(1024);   // exactly at the cap is still fine
     }
 
     @Test

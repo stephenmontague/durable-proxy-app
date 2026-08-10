@@ -2,8 +2,9 @@ package com.proxyapp.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Bootstrap-only configuration. Operational config (devices, routing, enabled) lives in
@@ -13,6 +14,18 @@ import java.util.List;
 @ConfigurationProperties(prefix = "proxy")
 public record ProxyProperties(String taskQueue, String controlTaskQueue, String profile,
                               Cloud cloud, Ingress ingress, Seed seed) {
+
+    /** Property path used in parse errors, so an operator can find what to edit. */
+    private static final String POOL_PROPERTY = "proxy.ingress.tcp-port-pool";
+
+    /**
+     * Upper bound on how many ports one pool may expand to. A site opens a handful of inbound
+     * ports, one per TCP channel, so anything near this is a typo — most likely a range whose
+     * end was mistyped ({@code 6000-65535} instead of {@code 6000-6535}). Worth catching because
+     * the expanded list is seeded into control-workflow state, where a runaway range would bloat
+     * every history event and every update response.
+     */
+    private static final int MAX_POOL_SIZE = 1024;
 
     public record Cloud(String baseUrl) {
     }
@@ -25,6 +38,15 @@ public record ProxyProperties(String taskQueue, String controlTaskQueue, String 
      */
     public record Ingress(String tcpPortPool, int ftpPort, String ftpRoot,
                           String ftpUser, String ftpPassword) {
+
+        public Ingress {
+            // Parse eagerly and discard the result: this runs during property binding, so a
+            // malformed pool fails startup with the offending token named. Every sibling field
+            // already behaves this way (a non-numeric ftp-port fails binding) -- without this,
+            // tcpPortPool would be the one field whose errors surface later, from inside the
+            // bootstrap retry loop, leaving a proxy that looks healthy but binds nothing.
+            expandPool(tcpPortPool);
+        }
     }
 
     /**
@@ -36,18 +58,26 @@ public record ProxyProperties(String taskQueue, String controlTaskQueue, String 
     }
 
     /**
-     * Expand {@code proxy.ingress.tcp-port-pool} into concrete ports. Parse failures are reported
-     * against the property and the offending token: this runs at boot from a Spring bean, where a
-     * bare {@code NumberFormatException} gives an operator nothing to act on.
-     *
-     * @throws IllegalArgumentException if a token is not a number, a range runs backwards, or a
-     *                                  port falls outside 1-65535
+     * The concrete inbound TCP ports this site made available. Validated during property binding
+     * (see {@link Ingress}), so by the time anything calls this the spec is known to parse.
      */
     public List<Integer> tcpPortPool() {
-        List<Integer> pool = new ArrayList<>();
-        String spec = ingress == null ? null : ingress.tcpPortPool();
+        return expandPool(ingress == null ? null : ingress.tcpPortPool());
+    }
+
+    /**
+     * Expand a pool spec — a comma list of single ports and {@code from-to} ranges — into concrete
+     * port numbers. Duplicates are collapsed and declaration order is kept. A blank or absent spec
+     * is an empty pool, not an error.
+     *
+     * @throws IllegalArgumentException if a token is not a number, a range runs backwards, a port
+     *                                  falls outside 1-65535, or the pool exceeds
+     *                                  {@link #MAX_POOL_SIZE} ports
+     */
+    private static List<Integer> expandPool(String spec) {
+        Set<Integer> pool = new LinkedHashSet<>();
         if (spec == null || spec.isBlank()) {
-            return pool;
+            return List.of();
         }
         for (String part : spec.split(",")) {
             String range = part.trim();
@@ -62,17 +92,24 @@ public record ProxyProperties(String taskQueue, String controlTaskQueue, String 
                     throw new IllegalArgumentException(POOL_PROPERTY + ": range '" + range
                             + "' runs backwards (" + from + " > " + to + ")");
                 }
+                if (to - from + 1 > MAX_POOL_SIZE) {
+                    throw new IllegalArgumentException(POOL_PROPERTY + ": range '" + range
+                            + "' covers " + (to - from + 1) + " ports, more than the "
+                            + MAX_POOL_SIZE + " allowed — check for a mistyped range end");
+                }
                 for (int p = from; p <= to; p++) {
                     pool.add(p);
                 }
             } else {
                 pool.add(port(range, range));
             }
+            if (pool.size() > MAX_POOL_SIZE) {
+                throw new IllegalArgumentException(POOL_PROPERTY + ": pool exceeds "
+                        + MAX_POOL_SIZE + " ports");
+            }
         }
-        return pool;
+        return List.copyOf(pool);
     }
-
-    private static final String POOL_PROPERTY = "proxy.ingress.tcp-port-pool";
 
     private static int port(String token, String context) {
         int value;
