@@ -23,6 +23,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -211,13 +213,89 @@ class DeviceSessionTest {
         session.close();
     }
 
+    @Test
+    void sendFailsAsSoonAsTheLinkDropsInsteadOfWaitingOutTheAckTimeout() throws Exception {
+        // A 30s ack timeout with a device that never acks: if the drop didn't wake the waiter, this
+        // send would block for the full 30s. The activity's whole retry cadence depends on it not.
+        long ackTimeoutMs = 30_000;
+        try (StubTcpServer server = new StubTcpServer(StubTcpServer::silent)) {
+            DeviceSession session = clientSession(server.port(), watchdog(60, 5), null, ackTimeoutMs);
+            session.start();
+            awaitState(session, DeviceSessionState.UP, 2_000);
+
+            AtomicReference<Throwable> thrown = new AtomicReference<>();
+            AtomicLong elapsedMs = new AtomicLong();
+            Thread sender = new Thread(() -> {
+                long start = System.currentTimeMillis();
+                try {
+                    session.send("NEEDS-ACK".getBytes(StandardCharsets.ISO_8859_1));
+                } catch (Throwable t) {
+                    thrown.set(t);
+                } finally {
+                    elapsedMs.set(System.currentTimeMillis() - start);
+                }
+            }, "test-sender");
+            sender.setDaemon(true);
+            sender.start();
+
+            // Let the send get parked in its ack wait, then drop the link out from under it.
+            awaitTrue(() -> session.status().inflight() == 1, 2_000);
+            for (Socket accepted : server.accepted) {
+                closeQuietly(accepted);
+            }
+
+            sender.join(10_000);
+            assertThat(sender.isAlive()).isFalse();
+            assertThat(thrown.get())
+                    .isInstanceOf(SessionSendException.class)
+                    .hasMessageContaining("before its send was acked");
+            assertThat(elapsedMs.get()).isLessThan(ackTimeoutMs / 2);
+            session.close();
+        }
+    }
+
+    @Test
+    void closingASessionAlsoReleasesAParkedSend() throws Exception {
+        // close() routes through transition(), so it must wake a waiter the same way a drop does.
+        long ackTimeoutMs = 30_000;
+        try (StubTcpServer server = new StubTcpServer(StubTcpServer::silent)) {
+            DeviceSession session = clientSession(server.port(), watchdog(60, 5), null, ackTimeoutMs);
+            session.start();
+            awaitState(session, DeviceSessionState.UP, 2_000);
+
+            AtomicReference<Throwable> thrown = new AtomicReference<>();
+            Thread sender = new Thread(() -> {
+                try {
+                    session.send("NEEDS-ACK".getBytes(StandardCharsets.ISO_8859_1));
+                } catch (Throwable t) {
+                    thrown.set(t);
+                }
+            }, "test-sender");
+            sender.setDaemon(true);
+            sender.start();
+
+            awaitTrue(() -> session.status().inflight() == 1, 2_000);
+            session.close();
+
+            sender.join(10_000);
+            assertThat(sender.isAlive()).isFalse();
+            assertThat(thrown.get()).isInstanceOf(SessionSendException.class);
+        }
+    }
+
     // ---- helpers ----
 
     private DeviceSession clientSession(int port, TcpSession.Heartbeat hb, TcpProtocol protocol) {
+        return clientSession(port, hb, protocol, 500);
+    }
+
+    private DeviceSession clientSession(int port, TcpSession.Heartbeat hb, TcpProtocol protocol,
+                                        long sendAckTimeoutMs) {
         TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
                 port, null, null, hb, null);
         DeviceSessionConfig cfg = new DeviceSessionConfig("dev-1", "127.0.0.1", protocol, session);
-        return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200, 500, inboundFrames::add);
+        return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200,
+                sendAckTimeoutMs, inboundFrames::add);
     }
 
     private DeviceSession serverSession() {

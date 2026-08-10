@@ -181,12 +181,20 @@ final class DeviceSession {
      * loop's follow-up DOWN. Stamps the transition, appends a bounded event, and tracks the reason:
      * DOWN sets {@link #lastError}, UP clears it, CONNECTING preserves it (so a reconnecting link
      * still explains its last drop).
+     *
+     * <p>Leaving UP also wakes any send parked in {@link #send}'s ack wait, so a dropped link fails
+     * the send immediately instead of burning the full {@code sendAckTimeoutMs}. The notify happens
+     * after {@code eventLock} is released: the only lock order this creates is eventLock → ackLock,
+     * and no path takes them the other way ({@link #onFrame} holds ackLock but never transitions,
+     * and {@code send} releases the monitor inside {@code wait}).
      */
     private void transition(DeviceSessionState newState, String detail) {
+        boolean leftUp;
         synchronized (eventLock) {
             if (newState == state) {
                 return;
             }
+            leftUp = state == DeviceSessionState.UP;
             state = newState;
             lastTransitionAtMs = nowMs();
             if (newState == DeviceSessionState.DOWN) {
@@ -198,6 +206,11 @@ final class DeviceSession {
                     Instant.ofEpochMilli(lastTransitionAtMs).toString(), newState.name(), detail));
             while (events.size() > MAX_EVENTS) {
                 events.removeFirst();
+            }
+        }
+        if (leftUp) {
+            synchronized (ackLock) {
+                ackLock.notifyAll();
             }
         }
     }
@@ -225,7 +238,7 @@ final class DeviceSession {
         cancel(pingTask);
         cancel(livenessTask);
         closeSocket(socket.getAndSet(null));
-        state = DeviceSessionState.DOWN;
+        transition(DeviceSessionState.DOWN, "session closed");
     }
 
     /**
@@ -268,8 +281,13 @@ final class DeviceSession {
                     ackLock.wait(remaining);
                 }
                 if (!ackReceived) {
-                    throw new SessionSendException("device " + config.deviceId()
-                            + " sent no ack within " + sendAckTimeoutMs + "ms");
+                    // transition() wakes us the moment the link leaves UP, so distinguish "the
+                    // device went away mid-send" from "the device stayed up but never acked".
+                    throw new SessionSendException(state == DeviceSessionState.UP
+                            ? "device " + config.deviceId() + " sent no ack within "
+                                    + sendAckTimeoutMs + "ms"
+                            : "device " + config.deviceId() + " link went " + state
+                                    + " before its send was acked");
                 }
             }
         } catch (IOException e) {
@@ -323,7 +341,7 @@ final class DeviceSession {
             sleep(backoff);
             backoff = Math.min(maxBackoffMs, backoff * 2);
         }
-        state = DeviceSessionState.DOWN;
+        transition(DeviceSessionState.DOWN, "connect loop stopped");
     }
 
     /**
