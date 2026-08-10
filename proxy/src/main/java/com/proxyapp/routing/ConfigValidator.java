@@ -20,11 +20,9 @@ import java.util.Set;
  * same checks run inside the control workflow's update handlers (against the slim
  * {@code typeDirections} view) and on the proxy before applying.
  *
- * <p><b>These error strings are part of the control API.</b> A rejected update returns them in
- * {@code lastError}, so a client that pre-validates config before submitting — a console, a CLI,
- * an admin form — should reproduce them exactly. Otherwise an operator is shown one message by the
- * client and a differently-worded one by the workflow for the same mistake. Treat a reworded
- * message here as a breaking change to that contract.
+ * <p><b>These error strings are part of the control API</b> — a rejected update returns them in
+ * {@code lastError}. A client that pre-validates should reproduce them exactly, so rewording one
+ * here is a breaking change.
  */
 public final class ConfigValidator {
 

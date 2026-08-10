@@ -27,12 +27,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The reporter exists to push link-health transitions that happen <i>between</i> reconciles, and
- * its whole design constraint is that it must cost zero Temporal Actions when nothing changed. So
- * the behavior worth locking is when it stays silent, not just when it reports.
- *
- * <p>Each test drives {@code reportIfChanged()} directly; the {@code @PostConstruct} scheduler is
- * never started, so ticks are deterministic.
+ * The reporter must cost zero Temporal Actions when nothing changed, so what's worth locking is
+ * when it stays silent. Tests drive {@code reportIfChanged()} directly rather than the scheduler.
  */
 class AppliedStatusReporterTest {
 
@@ -142,8 +138,7 @@ class AppliedStatusReporterTest {
     @Test
     void syncBaselineSuppressesTheRedundantPostReconcileReport() {
         applied(4);
-        // The reconcile activity already returned this snapshot to the workflow, so re-reporting it
-        // from the timer would be a duplicate Action.
+        // The reconcile activity already returned this to the workflow; re-reporting duplicates it.
         reporter.syncBaseline(reporter.snapshot());
 
         reporter.reportIfChanged();

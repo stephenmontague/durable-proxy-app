@@ -8,10 +8,8 @@ import java.util.Map;
  * Escape syntax for TCP wire-protocol strings (delimiters, ack/nak templates): a way to
  * write control bytes in plain printable config.
  *
- * <p>The grammar below and the error messages it produces are both part of the control API. A
- * client that lets an operator type these strings should implement the same grammar and report
- * the same errors, so a value accepted in the client is accepted by the workflow and a rejection
- * reads identically in both places.
+ * <p>The grammar below and its error messages are part of the control API: a client that lets an
+ * operator type these should implement the same grammar and report the same errors.
  *
  * <p>Grammar: printable ASCII (0x20–0x7E) literals, except {@code \} starts an escape
  * ({@code \\ \r \n \t \< \xHH}) and {@code <} starts a named control token

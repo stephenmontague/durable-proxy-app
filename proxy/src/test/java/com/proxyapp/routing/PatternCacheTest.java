@@ -51,7 +51,6 @@ class PatternCacheTest {
                     .contains(MessageType.of("DEVICE_TELEMETRY"));
         }
 
-        // 100 resolutions later the cache still holds exactly one compilation of that regex.
         assertThat(PatternCache.get(regex)).isSameAs(PatternCache.get(regex));
     }
 

@@ -6,12 +6,8 @@ import java.time.Duration;
 import java.util.function.BooleanSupplier;
 
 /**
- * Polling waits for the socket-driven tests. Sessions and listeners settle on background threads,
- * so assertions have to wait for a condition rather than assume it already holds.
- *
- * <p>Backed by Awaitility, which reports the condition's final state on timeout — a hand-rolled
- * poll loop can only say "it was still false". Use this for waiting on something to <i>become</i>
- * true; proving something never happens still needs a plain sleep plus an assertion.
+ * Polling waits for the socket-driven tests, which settle on background threads. For waiting on
+ * something to <i>become</i> true; proving something never happens still needs a sleep.
  */
 public final class Await {
 
@@ -20,7 +16,6 @@ public final class Await {
     private Await() {
     }
 
-    /** Wait up to {@code timeoutMs} for {@code condition}, failing the test if it never holds. */
     public static void until(BooleanSupplier condition, long timeoutMs) {
         Awaitility.await()
                 .atMost(Duration.ofMillis(timeoutMs))
@@ -28,10 +23,7 @@ public final class Await {
                 .until(condition::getAsBoolean);
     }
 
-    /**
-     * Wait up to {@code timeoutMs} for {@code condition}, describing what was being waited for in
-     * the failure message.
-     */
+    /** {@code description} names what was awaited in the timeout failure. */
     public static void until(String description, BooleanSupplier condition, long timeoutMs) {
         Awaitility.await(description)
                 .atMost(Duration.ofMillis(timeoutMs))

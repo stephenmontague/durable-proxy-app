@@ -216,8 +216,7 @@ class DeviceSessionTest {
 
     @Test
     void sendFailsAsSoonAsTheLinkDropsInsteadOfWaitingOutTheAckTimeout() throws Exception {
-        // A 30s ack timeout with a device that never acks: if the drop didn't wake the waiter, this
-        // send would block for the full 30s. The activity's whole retry cadence depends on it not.
+        // Device never acks: without the wake, this send blocks for the full 30s.
         long ackTimeoutMs = 30_000;
         try (StubTcpServer server = new StubTcpServer(StubTcpServer::silent)) {
             DeviceSession session = clientSession(server.port(), watchdog(60, 5), null, ackTimeoutMs);
@@ -257,7 +256,6 @@ class DeviceSessionTest {
 
     @Test
     void closingASessionAlsoReleasesAParkedSend() throws Exception {
-        // close() routes through transition(), so it must wake a waiter the same way a drop does.
         long ackTimeoutMs = 30_000;
         try (StubTcpServer server = new StubTcpServer(StubTcpServer::silent)) {
             DeviceSession session = clientSession(server.port(), watchdog(60, 5), null, ackTimeoutMs);

@@ -77,12 +77,9 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
     }
 
     /**
-     * @param initialState intentionally unused — {@link #ProxyControlWorkflowImpl(ProxyControlState)}
-     *                     already consumed it via {@code @WorkflowInit}, so that signals and updates
-     *                     delivered before {@code run()} starts see valid state. The parameter stays
-     *                     on the signature because {@code @WorkflowMethod} arguments are the
-     *                     workflow's durable contract: dropping it would break replay of executions
-     *                     already running.
+     * @param initialState unused — the {@code @WorkflowInit} constructor consumed it. Kept because
+     *                     {@code @WorkflowMethod} arguments are the durable contract: removing it
+     *                     would break replay of running executions.
      */
     @Override
     public void run(ProxyControlState initialState) {

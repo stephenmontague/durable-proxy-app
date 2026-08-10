@@ -18,14 +18,8 @@ public record ProxyProperties(String taskQueue, String controlTaskQueue, String 
     /** Property path used in parse errors, so an operator can find what to edit. */
     private static final String POOL_PROPERTY = "proxy.ingress.tcp-port-pool";
 
-    /**
-     * Upper bound on how many ports one pool may expand to. A site opens a handful of inbound
-     * ports, one per TCP channel, so anything near this is a typo — most likely a range whose
-     * end was mistyped ({@code 6000-65535} instead of {@code 6000-6535}). Worth catching because
-     * the expanded list is seeded into control-workflow state, where a runaway range would bloat
-     * every history event and every update response.
-     */
-    private static final int MAX_POOL_SIZE = 1024;
+    /** Catches a mistyped range end (6000-65535 for 6000-6535); a generous allocation still fits. */
+    private static final int MAX_POOL_SIZE = 8192;
 
     public record Cloud(String baseUrl) {
     }
@@ -40,12 +34,7 @@ public record ProxyProperties(String taskQueue, String controlTaskQueue, String 
                           String ftpUser, String ftpPassword) {
 
         public Ingress {
-            // Parse eagerly and discard the result: this runs during property binding, so a
-            // malformed pool fails startup with the offending token named. Every sibling field
-            // already behaves this way (a non-numeric ftp-port fails binding) -- without this,
-            // tcpPortPool would be the one field whose errors surface later, from inside the
-            // bootstrap retry loop, leaving a proxy that looks healthy but binds nothing.
-            expandPool(tcpPortPool);
+            expandPool(tcpPortPool); // parse now, so a bad pool fails binding like any other field
         }
     }
 
@@ -66,13 +55,8 @@ public record ProxyProperties(String taskQueue, String controlTaskQueue, String 
     }
 
     /**
-     * Expand a pool spec — a comma list of single ports and {@code from-to} ranges — into concrete
-     * port numbers. Duplicates are collapsed and declaration order is kept. A blank or absent spec
-     * is an empty pool, not an error.
-     *
-     * @throws IllegalArgumentException if a token is not a number, a range runs backwards, a port
-     *                                  falls outside 1-65535, or the pool exceeds
-     *                                  {@link #MAX_POOL_SIZE} ports
+     * Expand a comma list of ports and {@code from-to} ranges, collapsing duplicates. Blank is an
+     * empty pool, not an error; anything malformed throws {@link IllegalArgumentException}.
      */
     private static List<Integer> expandPool(String spec) {
         Set<Integer> pool = new LinkedHashSet<>();

@@ -12,11 +12,9 @@ import java.util.Set;
  * Validates proposed message-catalog changes. Pure and deterministic so it can run inside the
  * control workflow's update handlers (no I/O).
  *
- * <p><b>These error strings are part of the control API.</b> A rejected update returns them in
- * {@code lastError}, so a client that pre-validates before submitting should reproduce them
- * exactly — otherwise an operator sees one message from the client and another from the workflow
- * for the same mistake. See {@link com.proxyapp.routing.ConfigValidator} for the same contract on
- * device/routing config.
+ * <p><b>These error strings are part of the control API</b>, as in
+ * {@link com.proxyapp.routing.ConfigValidator} — a client that pre-validates should reproduce them
+ * exactly.
  */
 public final class CatalogValidator {
 

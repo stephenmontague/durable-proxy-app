@@ -17,12 +17,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * because an activity that kills its own worker before its completion is recorded would be retried
  * on relaunch and exit again.
  *
- * <p><b>Deployment requirement:</b> the proxy cannot restart itself — it can only exit with a
- * distinct code and rely on whatever supervises the process to bring it back. Run it under
- * something that relaunches on {@link #RESTART_EXIT_CODE} (a systemd unit with
- * {@code Restart=on-failure}, a Windows service, a container restart policy, or a shell wrapper)
- * and set {@code PROXY_SUPERVISED=true} in that environment so the proxy can report the capability
- * upstream. Without a supervisor, a restart command degrades to a shutdown.
+ * <p><b>Deployment requirement:</b> the proxy cannot restart itself, only exit. Run it under
+ * something that relaunches on {@link #RESTART_EXIT_CODE} — a systemd unit with
+ * {@code Restart=on-failure}, a service, a container restart policy — and set
+ * {@code PROXY_SUPERVISED=true} there. Without one, restart degrades to shutdown.
  */
 public class LifecycleController {
 

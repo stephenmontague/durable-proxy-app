@@ -31,12 +31,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The Reconciler is what actually makes desired state live, so these run it against <b>real</b>
- * ingress collaborators (which bind real ports) rather than nulls — a reconcile that "succeeds"
- * without opening a listener is the failure mode worth catching. Only the Temporal
- * {@link WorkerFactory} is mocked.
- *
- * <p>Ports come from the pool below and are released by {@link #tearDown()}.
+ * Runs against real ingress collaborators binding real ports — a reconcile that "succeeds" without
+ * opening a listener is the failure worth catching. Only {@link WorkerFactory} is mocked.
  */
 class ReconcilerTest {
 
@@ -164,8 +160,7 @@ class ReconcilerTest {
 
         reconciler.apply(state);
 
-        // CONFIG_ACK only resolves via the boot profile catalog, so a successful apply proves the
-        // fallback ran rather than the reconcile bailing out.
+        // CONFIG_ACK resolves only via the boot profile catalog, so applying at all proves it ran.
         assertThat(routingState.appliedVersion()).isEqualTo(1);
         assertThat(tcpSocketServer.activePorts()).containsExactly(TCP_PORT);
     }

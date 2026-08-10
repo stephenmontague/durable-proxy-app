@@ -34,9 +34,8 @@ import java.util.stream.Collectors;
  * DeviceSession>}. Mirrors {@link com.proxyapp.ingress.TcpSocketServer} /
  * {@code FtpIngressListener} — the {@code Reconciler} calls {@link #reconcile} as control state
  * changes, opening new sessions, closing removed ones, and hot-replacing changed ones. Sessions
- * live outside Temporal — they do blocking socket I/O and heartbeat continuously, neither of which
- * belongs in workflow code — and the outbound activity borrows one as its transport when a device
- * is configured for a persistent link.
+ * live outside Temporal (blocking I/O, continuous heartbeats); the outbound activity borrows one
+ * as its transport.
  */
 public class TcpSessionManager {
 

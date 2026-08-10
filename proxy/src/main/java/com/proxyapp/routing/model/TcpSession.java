@@ -67,15 +67,12 @@ public record TcpSession(Mode mode, Role role, Integer port, Integer listenPort,
     }
 
     /**
-     * How a send's reply is matched to its request on the shared socket. {@code SINGLE_IN_FLIGHT}
-     * (the default, and the only strategy currently implemented) allows one outstanding send at a
-     * time and contains-matches the configured ack.
+     * How a send's reply is matched to its request. {@code SINGLE_IN_FLIGHT} (default) allows one
+     * outstanding send and contains-matches the configured ack.
      *
-     * <p>{@code CORRELATION_ID} and {@code SEQUENCE} — which would read {@code field} /
-     * {@code delimiter} out of the frame to pair replies with requests and so allow several sends
-     * in flight — are <b>reserved and not yet honored</b>: configuring one today still behaves as
-     * {@code SINGLE_IN_FLIGHT}. They are modeled now so the config shape does not have to change
-     * when they land.
+     * <p>{@code CORRELATION_ID} and {@code SEQUENCE} are <b>reserved and not yet honored</b> —
+     * configuring one still behaves as {@code SINGLE_IN_FLIGHT}. Modeled now so the config shape
+     * survives implementing them.
      */
     public record Correlation(Strategy strategy, String field, String delimiter) {
         public enum Strategy { SINGLE_IN_FLIGHT, CORRELATION_ID, SEQUENCE }

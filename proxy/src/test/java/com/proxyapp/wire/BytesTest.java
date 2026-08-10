@@ -7,9 +7,8 @@ import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * These two used to be one method named {@code contains} with two different implementations in two
- * classes — the connector's only ever checked the tail. The distinction is load-bearing (a full
- * scan per appended byte would make the reply read quadratic), so it is pinned here.
+ * These were one method named {@code contains} with two different implementations. The distinction
+ * is load-bearing — a full scan per appended byte would make the reply read quadratic — so pin it.
  */
 class BytesTest {
 
