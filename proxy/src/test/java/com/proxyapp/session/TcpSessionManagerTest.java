@@ -1,8 +1,9 @@
 package com.proxyapp.session;
-import com.proxyapp.session.model.DeviceSessionConfig;
-import com.proxyapp.session.model.DeviceSessionStatus;
 
 import com.proxyapp.routing.model.TcpSession;
+import com.proxyapp.session.model.DeviceSessionConfig;
+import com.proxyapp.session.model.DeviceSessionStatus;
+import com.proxyapp.support.Await;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
@@ -180,29 +181,14 @@ class TcpSessionManagerTest {
     }
 
     private static void awaitSessionState(TcpSessionManager manager, String deviceId, String state,
-                                          long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (manager.statuses().stream()
-                    .anyMatch(s -> s.deviceId().equals(deviceId) && s.state().equals(state))) {
-                return;
-            }
-            Thread.sleep(25);
-        }
-        assertThat(manager.statuses()).anySatisfy(s -> {
-            assertThat(s.deviceId()).isEqualTo(deviceId);
-            assertThat(s.state()).isEqualTo(state);
-        });
+                                          long timeoutMs) {
+        Await.until("device " + deviceId + " to reach " + state,
+                () -> manager.statuses().stream()
+                        .anyMatch(s -> s.deviceId().equals(deviceId) && s.state().equals(state)),
+                timeoutMs);
     }
 
-    private static void awaitTrue(BooleanSupplier condition, long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            Thread.sleep(25);
-        }
-        assertThat(condition.getAsBoolean()).isTrue();
+    private static void awaitTrue(BooleanSupplier condition, long timeoutMs) {
+        Await.until(condition, timeoutMs);
     }
 }

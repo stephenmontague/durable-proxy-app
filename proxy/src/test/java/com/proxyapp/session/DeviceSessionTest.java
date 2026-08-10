@@ -1,9 +1,10 @@
 package com.proxyapp.session;
-import com.proxyapp.session.model.DeviceSessionConfig;
-import com.proxyapp.session.model.DeviceSessionState;
 
 import com.proxyapp.routing.model.TcpProtocol;
 import com.proxyapp.routing.model.TcpSession;
+import com.proxyapp.session.model.DeviceSessionConfig;
+import com.proxyapp.session.model.DeviceSessionState;
+import com.proxyapp.support.Await;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -310,27 +311,13 @@ class DeviceSessionTest {
         return new TcpSession.Heartbeat(null, null, null, null, expectInboundSec, missThreshold);
     }
 
-    private static void awaitState(DeviceSession session, DeviceSessionState expected, long timeoutMs)
-            throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (expected.name().equals(session.status().state())) {
-                return;
-            }
-            Thread.sleep(25);
-        }
-        assertThat(session.status().state()).isEqualTo(expected.name());
+    private static void awaitState(DeviceSession session, DeviceSessionState expected, long timeoutMs) {
+        Await.until("device session to reach " + expected,
+                () -> expected.name().equals(session.status().state()), timeoutMs);
     }
 
-    private static void awaitTrue(BooleanSupplier condition, long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            Thread.sleep(25);
-        }
-        assertThat(condition.getAsBoolean()).isTrue();
+    private static void awaitTrue(BooleanSupplier condition, long timeoutMs) {
+        Await.until(condition, timeoutMs);
     }
 
     private static void closeQuietly(Socket socket) {

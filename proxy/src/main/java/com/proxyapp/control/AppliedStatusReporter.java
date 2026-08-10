@@ -96,7 +96,8 @@ public class AppliedStatusReporter {
         lastSessionSig = sessionSignature(applied.sessions());
     }
 
-    private void reportIfChanged() {
+    /** Package-private rather than private so a test can drive one tick without the scheduler. */
+    void reportIfChanged() {
         AppliedStatus status = snapshot();
         if (status.version() < 0) {
             return; // nothing applied yet — stay silent until the first reconcile
