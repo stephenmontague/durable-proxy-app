@@ -7,12 +7,13 @@ import com.proxyapp.routing.model.MessageType;
 /**
  * A message-type definition as it travels through the control workflow: a flat,
  * Jackson-friendly mirror of {@link CatalogEntry} using plain strings (no {@link MessageType}
- * wrapper or {@link Direction} enum) so it serializes cleanly into workflow state and across
- * the UI's signal/query boundary.
+ * wrapper or {@link Direction} enum) so it serializes cleanly into workflow state and across the
+ * signal/update/query boundary a control client talks to.
  *
- * <p>Part 3 made the catalog operator-editable: these live in {@code ProxyControlState} instead
- * of being hardcoded in the profile. The proxy converts them back to {@link CatalogEntry} when
- * it rebuilds its {@code MessageCatalog} on reconcile.
+ * <p>This is the wire shape of the catalog: the operator-editable catalog lives in
+ * {@code ProxyControlState} as a list of these rather than being fixed in the boot profile, and
+ * the proxy converts them back to {@link CatalogEntry} when it rebuilds its {@code MessageCatalog}
+ * on reconcile. A client managing message types sends and receives exactly these fields.
  *
  * @param type            message type name, e.g. {@code "DEVICE_COMMAND"}
  * @param direction       {@code "CLOUD_TO_EDGE"} or {@code "EDGE_TO_CLOUD"}
@@ -39,7 +40,7 @@ public record CatalogEntryDto(String type, String direction, String codec,
 
     /**
      * Rehydrate into a routing {@link CatalogEntry}. Assumes the entry already passed
-     * {@link CatalogValidator} (the control workflow validates before storing), so the
+     * {@link com.proxyapp.control.CatalogValidator CatalogValidator} (the control workflow validates before storing), so the
      * direction string is a valid enum constant.
      */
     public CatalogEntry toCatalogEntry() {

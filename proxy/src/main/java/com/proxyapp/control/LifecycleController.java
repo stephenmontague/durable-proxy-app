@@ -1,7 +1,7 @@
 package com.proxyapp.control;
+
 import com.proxyapp.control.model.ProxyControlState;
 import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
-
 import io.temporal.client.WorkflowClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,15 +15,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@code deliverLifecycle} activity. Acks first so the cleared command is durable before the JVM
  * goes away, then exits on a separate, slightly-delayed thread — never on the activity thread,
  * because an activity that kills its own worker before its completion is recorded would be retried
- * on relaunch and exit again. Exit code 10 asks the supervisor to relaunch; 0 stays down.
+ * on relaunch and exit again.
+ *
+ * <p><b>Deployment requirement:</b> the proxy cannot restart itself — it can only exit with a
+ * distinct code and rely on whatever supervises the process to bring it back. Run it under
+ * something that relaunches on {@link #RESTART_EXIT_CODE} (a systemd unit with
+ * {@code Restart=on-failure}, a Windows service, a container restart policy, or a shell wrapper)
+ * and set {@code PROXY_SUPERVISED=true} in that environment so the proxy can report the capability
+ * upstream. Without a supervisor, a restart command degrades to a shutdown.
  */
 public class LifecycleController {
 
-    /** Exit code asking the supervisor wrapper (see {@code just run-proxy-managed} / systemd) to relaunch. */
+    /** Exit code asking whatever supervises this process to relaunch it. Any other code stays down. */
     public static final int RESTART_EXIT_CODE = 10;
 
     private static final Logger log = LoggerFactory.getLogger(LifecycleController.class);
-    /** Whether something will relaunch us after exit 10 (supervisor wrapper / systemd). */
+    /** Set by the deployment to declare that the process will be relaunched after a restart exit. */
     private static final boolean SUPERVISED =
             Boolean.parseBoolean(System.getenv().getOrDefault("PROXY_SUPERVISED", "false"));
     /** Let the activity completion record before the JVM exits (attempt-once delivery). */
@@ -54,8 +61,10 @@ public class LifecycleController {
         int exitCode = ProxyControlState.LIFECYCLE_RESTART.equals(command) ? RESTART_EXIT_CODE : 0;
         log.info("lifecycle command '{}' received from cloud — exiting with code {}", command, exitCode);
         if (exitCode == RESTART_EXIT_CODE && !SUPERVISED) {
-            log.warn("no supervisor detected (PROXY_SUPERVISED unset) — nothing will relaunch "
-                    + "this process; run via 'just run-proxy-managed' or a service unit");
+            log.warn("no supervisor detected (PROXY_SUPERVISED unset) — nothing will relaunch this "
+                    + "process, so this restart will behave as a shutdown; run under a supervisor "
+                    + "that restarts on exit code {} (e.g. a systemd unit with Restart=on-failure) "
+                    + "and set PROXY_SUPERVISED=true", RESTART_EXIT_CODE);
         }
         Thread exitThread = new Thread(() -> {
             sleepQuietly();

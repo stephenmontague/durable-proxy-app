@@ -1,10 +1,10 @@
 package com.proxyapp.temporal.activity;
+
 import com.proxyapp.control.AppliedStatusReporter;
 import com.proxyapp.control.LifecycleController;
 import com.proxyapp.control.Reconciler;
 import com.proxyapp.control.model.AppliedStatus;
 import com.proxyapp.control.model.ProxyControlState;
-
 import io.temporal.spring.boot.ActivityImpl;
 import org.springframework.stereotype.Component;
 

@@ -1,4 +1,5 @@
 package com.proxyapp.routing;
+
 import com.proxyapp.routing.model.ChannelKind;
 import com.proxyapp.routing.model.Direction;
 import com.proxyapp.routing.model.EdgeConfig;
@@ -16,8 +17,14 @@ import java.util.Set;
 
 /**
  * Validates a proposed routing config before it goes live. Pure and deterministic so the
- * same checks run inside the control workflow's signal handlers (against the slim
+ * same checks run inside the control workflow's update handlers (against the slim
  * {@code typeDirections} view) and on the proxy before applying.
+ *
+ * <p><b>These error strings are part of the control API.</b> A rejected update returns them in
+ * {@code lastError}, so a client that pre-validates config before submitting — a console, a CLI,
+ * an admin form — should reproduce them exactly. Otherwise an operator is shown one message by the
+ * client and a differently-worded one by the workflow for the same mistake. Treat a reworded
+ * message here as a breaking change to that contract.
  */
 public final class ConfigValidator {
 
@@ -73,8 +80,7 @@ public final class ConfigValidator {
 
     /**
      * Persistent SERVER devices may share one listen port (port economy), but only if each carries a
-     * distinct, non-blank handshakeId so the proxy can tell them apart on connect. Mirrored in
-     * validate.ts.
+     * distinct, non-blank handshakeId so the proxy can tell them apart on connect.
      */
     private static void validateServerPorts(List<EdgeConfig> devices, List<String> errors) {
         Map<Integer, List<EdgeConfig>> byPort = new HashMap<>();
@@ -188,10 +194,7 @@ public final class ConfigValidator {
         }
     }
 
-    /**
-     * Wire-protocol rules. Mirrored verbatim in the management UI's validate.ts —
-     * message text must stay identical (operators compare UI errors with lastError).
-     */
+    /** Wire-protocol rules: every WireString field must parse, and the combinations must cohere. */
     private static void validateTcpProtocol(String prefix, TcpProtocol p, List<String> errors) {
         checkWireField(prefix, "startDelimiter", p.startDelimiter(), errors);
         checkWireField(prefix, "endDelimiter", p.endDelimiter(), errors);
@@ -222,10 +225,9 @@ public final class ConfigValidator {
     }
 
     /**
-     * Persistent-session rules, applied only in PERSISTENT mode. Mirrored verbatim in the
-     * management UI's validate.ts — message text must stay identical. CLIENT needs host+port;
-     * SERVER needs listenPort or a handshake id; a persistent session needs at least one liveness
-     * mechanism; all heartbeat WireString fields must parse.
+     * Persistent-session rules, applied only in PERSISTENT mode. CLIENT needs host+port; SERVER
+     * needs listenPort (plus a handshake id when the port is shared); a persistent session needs
+     * at least one liveness mechanism; all heartbeat WireString fields must parse.
      */
     private static void validateTcpSession(String prefix, EdgeConfig device, TcpSession s,
                                            Map<String, String> typeDirections, List<String> errors) {

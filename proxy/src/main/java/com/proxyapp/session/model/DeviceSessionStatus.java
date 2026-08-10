@@ -1,12 +1,11 @@
 package com.proxyapp.session.model;
-import com.proxyapp.routing.model.TcpSession;
 
 import java.util.List;
 
 /**
  * Point-in-time health of one persistent device link, reported to the control workflow inside
- * {@link com.proxyapp.control.model.AppliedStatus} (so it rides the egress connection like everything
- * else) and rendered as a per-device lamp in the UI. Mirrored in the management UI's types.ts.
+ * {@link com.proxyapp.control.model.AppliedStatus} (so it rides the egress connection like
+ * everything else). This is the shape a client renders as a per-device connection indicator.
  *
  * <p>The link's local logs sit on a firewalled edge machine no operator can reach, so the diagnostic
  * fields below ({@code lastError}, {@code lastTransitionAt}, {@code recentEvents}) carry the

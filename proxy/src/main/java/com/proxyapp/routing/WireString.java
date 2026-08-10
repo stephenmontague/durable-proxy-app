@@ -6,10 +6,12 @@ import java.util.Map;
 
 /**
  * Escape syntax for TCP wire-protocol strings (delimiters, ack/nak templates): a way to
- * write control bytes in plain printable config. Mirrored byte-for-byte by the
- * management UI's {@code lib/wire-string.ts} — grammar AND error message text must stay
- * identical, because operators compare the UI's inline errors with the control
- * workflow's {@code lastError}.
+ * write control bytes in plain printable config.
+ *
+ * <p>The grammar below and the error messages it produces are both part of the control API. A
+ * client that lets an operator type these strings should implement the same grammar and report
+ * the same errors, so a value accepted in the client is accepted by the workflow and a rejection
+ * reads identically in both places.
  *
  * <p>Grammar: printable ASCII (0x20–0x7E) literals, except {@code \} starts an escape
  * ({@code \\ \r \n \t \< \xHH}) and {@code <} starts a named control token

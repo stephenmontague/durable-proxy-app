@@ -1,13 +1,13 @@
 package com.proxyapp.control;
-import com.proxyapp.control.model.CatalogEntryDto;
-import com.proxyapp.control.model.ProxyControlState;
-import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.proxyapp.config.ProxyProperties;
-import com.proxyapp.routing.model.EdgeConfig;
+import com.proxyapp.control.model.CatalogEntryDto;
+import com.proxyapp.control.model.ProxyControlState;
 import com.proxyapp.routing.MessageCatalog;
+import com.proxyapp.routing.model.EdgeConfig;
+import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 import io.temporal.api.enums.v1.WorkflowIdConflictPolicy;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowOptions;
@@ -21,10 +21,11 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Ensures the singleton control workflow exists, seeding it with the catalog's slim view,
- * the site port pool, and (for the demo) any bootstrap device config. Idempotent: with
- * conflict policy USE_EXISTING a running workflow is left untouched, so Temporal — not the
- * local bootstrap file — stays the source of truth for operational config.
+ * Ensures the singleton control workflow exists, seeding it with the catalog's slim view, the site
+ * port pool, and any optional bootstrap device config. Idempotent: with conflict policy
+ * USE_EXISTING a running workflow is left untouched, so Temporal — not this proxy's local config —
+ * stays the source of truth for operational state. Restarting the proxy therefore never resets
+ * what an operator changed at runtime.
  */
 public class ProxyControlStarter {
 

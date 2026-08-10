@@ -1,6 +1,6 @@
 package com.proxyapp.connector;
-import com.proxyapp.connector.model.ChannelTarget;
 
+import com.proxyapp.connector.model.ChannelTarget;
 import com.proxyapp.routing.model.Transport;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;

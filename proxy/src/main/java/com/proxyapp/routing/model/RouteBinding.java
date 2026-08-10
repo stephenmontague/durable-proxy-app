@@ -4,11 +4,11 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 
 /**
  * Binds one message type to a transport + channel on a specific edge device.
- * Direction comes from the {@link MessageCatalog}, not from the binding.
+ * Direction comes from the {@link com.proxyapp.routing.MessageCatalog MessageCatalog}, not from the binding.
  *
  * <p>If {@code resolver} is set, this binding is a multi-type channel: {@code messageType}
  * may be null and inbound type resolution is delegated to the configured
- * {@link MessageTypeResolver} (opt-in, FTP folders only).
+ * {@link com.proxyapp.routing.MessageTypeResolver MessageTypeResolver} (opt-in, FTP folders only).
  *
  * <p>{@code tcpProtocol} (TCP bindings only) overrides the device-level wire protocol;
  * null inherits the device's, which itself defaults to legacy framing.

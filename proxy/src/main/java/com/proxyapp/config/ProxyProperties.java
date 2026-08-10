@@ -27,10 +27,22 @@ public record ProxyProperties(String taskQueue, String controlTaskQueue, String 
                           String ftpUser, String ftpPassword) {
     }
 
-    /** Demo convenience: device config used to seed a brand-new control workflow. */
+    /**
+     * Optional bootstrap device config for a <i>brand-new</i> control workflow. Ignored once one
+     * exists, since Temporal is then the source of truth — so this cannot be used to push config
+     * to a running install. Leave blank to start empty and configure through the control API.
+     */
     public record Seed(String devicesResource) {
     }
 
+    /**
+     * Expand {@code proxy.ingress.tcp-port-pool} into concrete ports. Parse failures are reported
+     * against the property and the offending token: this runs at boot from a Spring bean, where a
+     * bare {@code NumberFormatException} gives an operator nothing to act on.
+     *
+     * @throws IllegalArgumentException if a token is not a number, a range runs backwards, or a
+     *                                  port falls outside 1-65535
+     */
     public List<Integer> tcpPortPool() {
         List<Integer> pool = new ArrayList<>();
         String spec = ingress == null ? null : ingress.tcpPortPool();

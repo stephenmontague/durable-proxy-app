@@ -1,7 +1,7 @@
 package com.proxyapp.temporal.activity;
+
 import com.proxyapp.control.model.AppliedStatus;
 import com.proxyapp.control.model.ProxyControlState;
-
 import io.temporal.activity.ActivityInterface;
 import io.temporal.activity.ActivityMethod;
 

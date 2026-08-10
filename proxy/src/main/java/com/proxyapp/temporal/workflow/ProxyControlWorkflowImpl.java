@@ -1,9 +1,9 @@
 package com.proxyapp.temporal.workflow;
+
 import com.proxyapp.control.CatalogValidator;
 import com.proxyapp.control.model.AppliedStatus;
 import com.proxyapp.control.model.CatalogEntryDto;
 import com.proxyapp.control.model.ProxyControlState;
-
 import com.proxyapp.routing.ConfigValidator;
 import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.model.RouteBinding;
@@ -76,6 +76,14 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
         this.state = initialState != null ? initialState : new ProxyControlState();
     }
 
+    /**
+     * @param initialState intentionally unused — {@link #ProxyControlWorkflowImpl(ProxyControlState)}
+     *                     already consumed it via {@code @WorkflowInit}, so that signals and updates
+     *                     delivered before {@code run()} starts see valid state. The parameter stays
+     *                     on the signature because {@code @WorkflowMethod} arguments are the
+     *                     workflow's durable contract: dropping it would break replay of executions
+     *                     already running.
+     */
     @Override
     public void run(ProxyControlState initialState) {
         while (true) {
@@ -279,10 +287,11 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
     }
 
     /**
-     * The catalog to mutate. On a workflow that predates Part 3 the stored catalog is null;
-     * synthesize a degraded one from {@code typeDirections} (codec defaults to json, endpoints
-     * blank) so a single edit doesn't NPE. The UI steers operators to "Import profile" instead,
-     * which carries the full entries.
+     * The catalog to mutate. A long-running workflow whose state was written before the catalog
+     * became operator-editable has a null {@code catalogEntries}; synthesize a degraded one from
+     * {@code typeDirections} (codec defaults to json, endpoints blank) so a single edit doesn't
+     * NPE. The synthesized entries are lossy, so prefer {@code importCatalog} on such a workflow —
+     * it replaces the whole catalog with full entries rather than patching a guess.
      */
     private List<CatalogEntryDto> currentCatalog() {
         if (state.getCatalogEntries() != null) {

@@ -106,7 +106,7 @@ final class DeviceSession {
     private volatile long lastInboundAtMs;    // 0 = never
     private volatile boolean pingOutstanding;
     private volatile long pingDeadlineMs;
-    private volatile long beats;              // heartbeats sent this connection (demo trace)
+    private volatile long beats;              // heartbeats sent this connection (heartbeat trace only)
     private volatile long connectedAtMs;      // for "link up Xs" in the heartbeat trace
     private final AtomicInteger consecutiveMisses = new AtomicInteger();
     private final AtomicInteger inflight = new AtomicInteger(); // outbound sends awaiting their ack

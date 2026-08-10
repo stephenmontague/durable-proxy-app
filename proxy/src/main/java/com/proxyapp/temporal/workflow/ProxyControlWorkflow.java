@@ -1,8 +1,8 @@
 package com.proxyapp.temporal.workflow;
+
 import com.proxyapp.control.model.AppliedStatus;
 import com.proxyapp.control.model.CatalogEntryDto;
 import com.proxyapp.control.model.ProxyControlState;
-
 import com.proxyapp.routing.model.EdgeConfig;
 import io.temporal.workflow.QueryMethod;
 import io.temporal.workflow.SignalMethod;

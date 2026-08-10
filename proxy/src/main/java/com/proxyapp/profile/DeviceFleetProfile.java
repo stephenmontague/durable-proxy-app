@@ -1,20 +1,27 @@
 package com.proxyapp.profile;
 
+import com.proxyapp.routing.MessageCatalog;
 import com.proxyapp.routing.model.CatalogEntry;
 import com.proxyapp.routing.model.ChannelKind;
 import com.proxyapp.routing.model.DeviceTemplate;
 import com.proxyapp.routing.model.DeviceTemplate.TemplateBinding;
 import com.proxyapp.routing.model.Direction;
-import com.proxyapp.routing.MessageCatalog;
 import com.proxyapp.routing.model.MessageType;
 import com.proxyapp.routing.model.Transport;
 
 import java.util.List;
 
 /**
- * The reference/demo profile: a cloud platform managing a fleet of on-prem edge devices
- * (gateways, controllers, sensors). This is an example of a profile, not part of the core —
- * swap it and the same proxy connects anything cloud-side to anything on-prem.
+ * An example {@link Profile}, modelling a cloud platform that manages a fleet of on-prem edge
+ * devices (gateways, controllers, sensors). It exists to show what a profile supplies — a message
+ * catalog naming every type the install can route, plus device templates that pre-fill a typical
+ * channel layout — and is not part of the core.
+ *
+ * <p>Use it as a template: write a profile for your own domain, register it in
+ * {@link ProfileRegistry}, and select it with {@code proxy.profile}. Nothing outside this package
+ * knows what the types mean, so the same proxy connects any cloud-side system to any on-prem one.
+ * A fresh install that configures everything through the control API needs no profile at all —
+ * see {@link EmptyProfile}.
  */
 public final class DeviceFleetProfile implements Profile {
 

@@ -1,8 +1,7 @@
 package com.proxyapp.controller;
 
-import com.proxyapp.ingress.IngressException;
 import com.proxyapp.ingress.InboundGateway;
-import com.proxyapp.routing.model.Transport;
+import com.proxyapp.ingress.IngressException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;

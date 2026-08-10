@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 
 /**
  * Optional per-device persistent-TCP-session config. Absent (null) or {@link Mode#PER_MESSAGE}
- * = today's connect-per-message {@link TcpConnector}-style behavior. {@link Mode#PERSISTENT}
+ * = today's connect-per-message {@link com.proxyapp.connector.TcpConnector TcpConnector}-style behavior. {@link Mode#PERSISTENT}
  * keeps a single socket warm with heartbeats; outbound messages still ride durable Temporal
  * activities (see {@code docs/persistent-tcp-sessions.md}) — only the in-activity transport call
  * changes.
@@ -51,7 +51,7 @@ public record TcpSession(Mode mode, Role role, Integer port, Integer listenPort,
      * <b>outbound ping</b> ({@code sendIntervalSec} + {@code sendPayload}, optionally awaiting
      * {@code expectReply} within {@code replyTimeoutMs}) and/or an <b>inbound watchdog</b>
      * ({@code expectInboundSec}). {@code missThreshold} consecutive misses flip the link DOWN.
-     * {@code sendPayload}/{@code expectReply} use {@link WireString} escape syntax.
+     * {@code sendPayload}/{@code expectReply} use {@link com.proxyapp.routing.WireString WireString} escape syntax.
      */
     public record Heartbeat(Integer sendIntervalSec, String sendPayload, String expectReply,
                             Integer replyTimeoutMs, Integer expectInboundSec, Integer missThreshold) {
@@ -68,9 +68,14 @@ public record TcpSession(Mode mode, Role role, Integer port, Integer listenPort,
 
     /**
      * How a send's reply is matched to its request on the shared socket. {@code SINGLE_IN_FLIGHT}
-     * (default) allows one outstanding send at a time and contains-matches the configured ack;
-     * {@code CORRELATION_ID}/{@code SEQUENCE} read {@code field}/{@code delimiter} from the frame.
-     * Consumed in a later phase; modeled here so the config contract is stable.
+     * (the default, and the only strategy currently implemented) allows one outstanding send at a
+     * time and contains-matches the configured ack.
+     *
+     * <p>{@code CORRELATION_ID} and {@code SEQUENCE} — which would read {@code field} /
+     * {@code delimiter} out of the frame to pair replies with requests and so allow several sends
+     * in flight — are <b>reserved and not yet honored</b>: configuring one today still behaves as
+     * {@code SINGLE_IN_FLIGHT}. They are modeled now so the config shape does not have to change
+     * when they land.
      */
     public record Correlation(Strategy strategy, String field, String delimiter) {
         public enum Strategy { SINGLE_IN_FLIGHT, CORRELATION_ID, SEQUENCE }

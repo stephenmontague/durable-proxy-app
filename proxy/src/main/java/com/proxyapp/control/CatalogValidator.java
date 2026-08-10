@@ -1,6 +1,6 @@
 package com.proxyapp.control;
-import com.proxyapp.control.model.CatalogEntryDto;
 
+import com.proxyapp.control.model.CatalogEntryDto;
 import com.proxyapp.routing.model.Direction;
 
 import java.util.ArrayList;
@@ -10,9 +10,13 @@ import java.util.Set;
 
 /**
  * Validates proposed message-catalog changes. Pure and deterministic so it can run inside the
- * control workflow's signal handlers (no I/O). Mirrored verbatim in the management UI's
- * validate.ts — message text must stay identical so the UI shows the same errors the workflow
- * would reject with.
+ * control workflow's update handlers (no I/O).
+ *
+ * <p><b>These error strings are part of the control API.</b> A rejected update returns them in
+ * {@code lastError}, so a client that pre-validates before submitting should reproduce them
+ * exactly — otherwise an operator sees one message from the client and another from the workflow
+ * for the same mistake. See {@link com.proxyapp.routing.ConfigValidator} for the same contract on
+ * device/routing config.
  */
 public final class CatalogValidator {
 

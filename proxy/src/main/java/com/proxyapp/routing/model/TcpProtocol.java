@@ -8,7 +8,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  * behavior: EOF framing, {@code "ACK {id}\n"} / {@code "ERR {reason} {msg}\n"} inbound
  * replies, and a {@code startsWith("ACK")} outbound check.
  *
- * <p>All string fields use {@link WireString} escape syntax (e.g. {@code <VT>},
+ * <p>All string fields use {@link com.proxyapp.routing.WireString WireString} escape syntax (e.g. {@code <VT>},
  * {@code \x1c}) and decode to bytes via ISO-8859-1. Reply templates are written
  * <b>verbatim</b> after decoding + placeholder substitution — if your protocol frames its
  * acks, embed the framing characters in the template yourself.

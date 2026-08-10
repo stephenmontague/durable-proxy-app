@@ -1,4 +1,5 @@
 package com.proxyapp.routing;
+
 import com.proxyapp.routing.model.CatalogEntry;
 import com.proxyapp.routing.model.MessageType;
 

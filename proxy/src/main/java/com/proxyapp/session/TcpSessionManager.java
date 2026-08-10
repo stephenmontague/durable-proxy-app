@@ -1,9 +1,8 @@
 package com.proxyapp.session;
-import com.proxyapp.control.model.AppliedStatus;
-import com.proxyapp.session.model.DeviceSessionConfig;
-import com.proxyapp.session.model.DeviceSessionStatus;
 
 import com.proxyapp.routing.model.TcpSession;
+import com.proxyapp.session.model.DeviceSessionConfig;
+import com.proxyapp.session.model.DeviceSessionStatus;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +34,9 @@ import java.util.stream.Collectors;
  * DeviceSession>}. Mirrors {@link com.proxyapp.ingress.TcpSocketServer} /
  * {@code FtpIngressListener} — the {@code Reconciler} calls {@link #reconcile} as control state
  * changes, opening new sessions, closing removed ones, and hot-replacing changed ones. Sessions
- * live outside Temporal; the outbound activity borrows them as a transport (phase 3).
+ * live outside Temporal — they do blocking socket I/O and heartbeat continuously, neither of which
+ * belongs in workflow code — and the outbound activity borrows one as its transport when a device
+ * is configured for a persistent link.
  */
 public class TcpSessionManager {
 

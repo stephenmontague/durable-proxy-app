@@ -1,6 +1,6 @@
 package com.proxyapp.control;
-import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 
+import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 import io.temporal.client.WorkflowClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

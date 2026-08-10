@@ -1,17 +1,17 @@
 package com.proxyapp.control;
-import com.proxyapp.control.model.CatalogEntryDto;
-import com.proxyapp.control.model.ProxyControlState;
 
 import com.proxyapp.config.ProxyProperties;
+import com.proxyapp.control.model.CatalogEntryDto;
+import com.proxyapp.control.model.ProxyControlState;
 import com.proxyapp.ingress.FtpIngressListener;
 import com.proxyapp.ingress.TcpSocketServer;
 import com.proxyapp.routing.ConfigValidator;
-import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.MessageCatalog;
 import com.proxyapp.routing.RouteTable;
 import com.proxyapp.routing.RoutingState;
-import com.proxyapp.session.model.DeviceSessionConfig;
+import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.session.TcpSessionManager;
+import com.proxyapp.session.model.DeviceSessionConfig;
 import io.temporal.worker.Worker;
 import io.temporal.worker.WorkerFactory;
 import org.slf4j.Logger;
@@ -113,8 +113,9 @@ public class Reconciler {
 
     /**
      * The catalog to apply this reconcile: the operator-edited one held in control state, or —
-     * for a workflow that predates Part 3 ({@code catalogEntries == null}) — the boot profile
-     * catalog this proxy was built with. That fallback is what keeps upgrades non-breaking.
+     * when control state carries none ({@code catalogEntries} null or empty) — the boot profile
+     * catalog this proxy was built with. That fallback is what lets a proxy upgrade in front of a
+     * control workflow whose stored state predates the editable catalog, without dropping routes.
      */
     private MessageCatalog catalogFor(ProxyControlState desired) {
         List<CatalogEntryDto> entries = desired.getCatalogEntries();

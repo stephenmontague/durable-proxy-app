@@ -1,7 +1,7 @@
 package com.proxyapp.control.model;
-import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 
 import com.proxyapp.routing.model.EdgeConfig;
+import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -26,9 +26,10 @@ public class ProxyControlState {
     private String lastError;
     private Map<String, String> typeDirections = new LinkedHashMap<>();
     /**
-     * The operator-editable message catalog (Part 3). Null on workflows that predate Part 3 —
-     * the proxy then falls back to its boot profile catalog. {@code typeDirections} is kept as a
-     * derived projection of this so the device-binding validation stays unchanged.
+     * The operator-editable message catalog. Null on a long-running workflow whose state was
+     * written before the catalog became editable — the proxy then falls back to its boot profile
+     * catalog. {@code typeDirections} is kept as a derived projection of this, so device-binding
+     * validation reads one shape regardless of which source the catalog came from.
      */
     private List<CatalogEntryDto> catalogEntries;
     private List<Integer> tcpPortPool = new ArrayList<>();

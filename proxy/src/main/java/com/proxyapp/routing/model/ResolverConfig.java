@@ -3,7 +3,7 @@ package com.proxyapp.routing.model;
 import java.util.Map;
 
 /**
- * Opt-in escape hatch for opaque-multiplexed devices: binds a {@link MessageTypeResolver}
+ * Opt-in escape hatch for opaque-multiplexed devices: binds a {@link com.proxyapp.routing.MessageTypeResolver MessageTypeResolver}
  * to a single channel that carries multiple message types. Off (null) by default.
  *
  * @param kind     resolver implementation key, e.g. {@code "filename-pattern"}

@@ -1,12 +1,11 @@
 package com.proxyapp.session.model;
-import com.proxyapp.routing.model.EdgeConfig;
 
 import com.proxyapp.routing.model.TcpProtocol;
 import com.proxyapp.routing.model.TcpSession;
 
 /**
  * The slim, runtime-facing view of a device's persistent-session config that
- * {@link TcpSessionManager} reconciles against — derived from an
+ * {@link com.proxyapp.session.TcpSessionManager TcpSessionManager} reconciles against — derived from an
  * {@link com.proxyapp.routing.model.EdgeConfig} whose {@link TcpSession} is PERSISTENT. Record equality
  * drives reconcile's "did this device's session change?" check (reopen on any change).
  *
