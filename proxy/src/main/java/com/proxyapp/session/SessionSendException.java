@@ -1,9 +1,8 @@
 package com.proxyapp.session;
 
 /**
- * A persistent-session send could not be completed (link down, slot busy, write error, or no ack
- * in time). Thrown to the outbound activity, where it fails the activity so Temporal retries —
- * the message waits durably and delivers when the link is back, exactly like a per-message send.
+ * A persistent-session send could not be completed (link down, slot busy, write error, no ack in time).
+ * Fails the outbound activity so Temporal retries, leaving the message durable until the link is back.
  */
 public class SessionSendException extends RuntimeException {
 

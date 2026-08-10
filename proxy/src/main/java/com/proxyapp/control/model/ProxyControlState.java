@@ -1,7 +1,6 @@
 package com.proxyapp.control.model;
 
 import com.proxyapp.routing.model.EdgeConfig;
-import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -9,9 +8,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Desired state of one proxy install, held durably by the {@link ProxyControlWorkflow}.
- * {@code typeDirections} and {@code tcpPortPool} are seeded by the proxy at first start so
- * signal handlers can validate proposed configs deterministically inside the workflow.
+ * Desired state of one proxy install, held durably by the control workflow. {@code typeDirections}
+ * and {@code tcpPortPool} are seeded by the proxy at first start so handlers can validate proposed
+ * configs deterministically inside the workflow.
  */
 public class ProxyControlState {
 
@@ -25,12 +24,8 @@ public class ProxyControlState {
     private long version;
     private String lastError;
     private Map<String, String> typeDirections = new LinkedHashMap<>();
-    /**
-     * The operator-editable message catalog. Null on a long-running workflow whose state was
-     * written before the catalog became editable — the proxy then falls back to its boot profile
-     * catalog. {@code typeDirections} is kept as a derived projection of this, so device-binding
-     * validation reads one shape regardless of which source the catalog came from.
-     */
+    /** Operator-editable catalog; null in state written before it was editable, where the proxy
+     *  falls back to its boot profile catalog. */
     private List<CatalogEntryDto> catalogEntries;
     private List<Integer> tcpPortPool = new ArrayList<>();
     private String lifecycleCommand = LIFECYCLE_NONE;

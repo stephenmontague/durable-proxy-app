@@ -1,21 +1,17 @@
 package com.proxyapp.wire;
 
 /**
- * Byte-matching helpers for the TCP wire paths. Both take an explicit {@code size} so callers can
- * scan a partially-filled buffer without copying it.
- *
- * <p>The two methods answer genuinely different questions, and picking the wrong one is a
- * performance trap rather than a correctness one — see {@link #endsWith}.
+ * Byte-matching helpers for the TCP wire paths. Both take an explicit {@code size} so callers can scan
+ * a partially-filled buffer without copying it. Picking the wrong one is a performance trap rather
+ * than a correctness one — see {@link #endsWith}.
  */
 public final class Bytes {
 
     private Bytes() {
     }
 
-    /**
-     * Whether {@code needle} appears anywhere in the first {@code size} bytes of {@code haystack}.
-     * Use when the buffer is scanned once after it is complete.
-     */
+    /** Whether {@code needle} appears anywhere in the first {@code size} bytes. Use when the buffer is
+     *  scanned once, after it is complete. */
     public static boolean contains(byte[] haystack, int size, byte[] needle) {
         if (needle.length == 0 || needle.length > size) {
             return false;
@@ -29,12 +25,9 @@ public final class Bytes {
     }
 
     /**
-     * Whether the first {@code size} bytes of {@code haystack} end with {@code suffix}.
-     *
-     * <p>This is the right check when re-testing after each single-byte append: only the tail can
-     * newly match, so a full {@link #contains} scan per byte would make an otherwise linear read
-     * quadratic. It is <b>not</b> a substring test — a caller that needs "appears anywhere" on a
-     * completed buffer wants {@link #contains}.
+     * Whether the first {@code size} bytes end with {@code suffix}. The right check when re-testing
+     * after each single-byte append: only the tail can newly match, so a full {@link #contains} scan
+     * per byte would make an otherwise linear read quadratic. Not a substring test.
      */
     public static boolean endsWith(byte[] haystack, int size, byte[] suffix) {
         if (suffix.length == 0 || suffix.length > size) {

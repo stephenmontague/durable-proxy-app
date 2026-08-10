@@ -20,13 +20,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Reports the proxy's applied state to the control workflow over the egress connection. Routine
- * post-reconcile applied state is captured for free as the reconcile activity's return value; this
- * reporter exists to push <b>link-health transitions</b> (UP/DOWN/CONNECTING) that happen between
- * reconciles. A local timer diffs the in-memory session signature — this is NOT a Temporal poll, so
- * it costs zero Actions unless something actually changed — and on a change calls the
- * {@code reportApplied} Update. The Update returns the current desired version; if the proxy is
- * behind it self-heals with a {@code requestReconcile} signal.
+ * Pushes link-health transitions that happen between reconciles (routine applied state already comes
+ * back as the reconcile activity's return value). A local timer diffs the in-memory session
+ * signature — not a Temporal poll, so it costs zero Actions unless something changed — and calls
+ * {@code reportApplied}, self-healing with a {@code requestReconcile} if the returned version is ahead.
  */
 public class AppliedStatusReporter {
 
@@ -86,10 +83,8 @@ public class AppliedStatusReporter {
                 tcpSessionManager.statuses());
     }
 
-    /**
-     * Adopt {@code applied} as the reported baseline without sending anything — the reconcile
-     * activity already returns it to the workflow, so the timer must not re-report the same state.
-     */
+    /** Adopt {@code applied} as the baseline without sending: the reconcile activity already
+     *  returned it, so the timer must not re-report the same state. */
     public synchronized void syncBaseline(AppliedStatus applied) {
         lastVersion = applied.version();
         lastEnabled = applied.enabled();
@@ -111,8 +106,7 @@ public class AppliedStatusReporter {
             }
         }
         try {
-            // The Update returns desired version; the network call stays outside the lock so a slow
-            // workflow can't stall the reconcile activity's syncBaseline().
+            // Network call stays outside the lock so a slow workflow can't stall syncBaseline().
             long desiredVersion = control().reportApplied(status);
             synchronized (this) {
                 lastVersion = status.version();
@@ -137,9 +131,9 @@ public class AppliedStatusReporter {
     }
 
     /**
-     * deviceId:state:lastError triples — flips on link transitions and on a changed drop reason
-     * (so the "why" gets pushed), but NOT on every heartbeat, preserving the zero-Action design.
-     * Intentionally excludes lastTransitionAt/recentEvents/heartbeat timestamps, which would churn.
+     * deviceId:state:lastError triples — flips on transitions and on a changed drop reason, but not
+     * on every heartbeat. Excludes lastTransitionAt/recentEvents/heartbeat timestamps, which would
+     * churn and cost an Action per beat.
      */
     private static String sessionSignature(List<DeviceSessionStatus> sessions) {
         return String.join(",", sessions.stream()

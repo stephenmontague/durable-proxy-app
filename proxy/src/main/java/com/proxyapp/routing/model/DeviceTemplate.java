@@ -3,16 +3,13 @@ package com.proxyapp.routing.model;
 import java.util.List;
 
 /**
- * Per-edge-model profile that pre-fills the typical message types and channel layout.
- * A configurator clones it and supplies only the site-specific values (baseUrl/host + base
- * ports) — in the common case nothing is typed by hand.
+ * Per-edge-model profile pre-filling the typical message types and channel layout. A configurator
+ * clones it and supplies only the site-specific values (baseUrl/host + base ports).
  */
 public record DeviceTemplate(String id, String name, List<TemplateBinding> bindings) {
 
-    /**
-     * One pre-filled binding. For PORT channels the concrete port is {@code basePort + portOffset};
-     * PATH/FOLDER channels use the literal {@code value}.
-     */
+    /** One pre-filled binding. PORT channels resolve to {@code basePort + portOffset};
+     *  PATH/FOLDER use the literal {@code value}. */
     public record TemplateBinding(MessageType messageType, Transport transport, ChannelKind kind,
                                   String value, int portOffset) {
     }

@@ -29,12 +29,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * FTP ingress: an embedded drop-server whose folders are the channels. The edge target
- * uploads into a per-type folder; on upload completion the file is handed to the gateway
- * and deleted only after Temporal accepted the enqueue (consume = ack). Files whose
- * enqueue fails stay in place and are re-swept on the next reconcile.
- *
- * <p>Runs only while at least one FTP folder is bound; the Reconciler stops it on disable.
+ * FTP ingress: an embedded drop-server whose folders are the channels. On upload completion the file is
+ * handed to the gateway and deleted only after Temporal accepted the enqueue, so a failed enqueue
+ * leaves it in place to be re-swept next reconcile. Runs only while at least one folder is bound.
  */
 public class FtpIngressListener {
 
@@ -60,8 +57,8 @@ public class FtpIngressListener {
 
     @PostConstruct
     public void startSupervisor() {
-        // Restart the embedded server if it dies while folders are bound — without a control poll
-        // nothing else would notice. Reconcile-driven start/stop still wins (both synchronize on this).
+        // Restart the embedded server if it dies while folders are bound; without a control poll
+        // nothing else would notice. Reconcile-driven start/stop still wins via this monitor.
         supervisor.scheduleWithFixedDelay(this::superviseServer,
                 HEALTH_INTERVAL_MS, HEALTH_INTERVAL_MS, TimeUnit.MILLISECONDS);
     }

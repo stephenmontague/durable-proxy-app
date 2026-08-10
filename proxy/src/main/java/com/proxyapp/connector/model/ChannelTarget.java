@@ -8,14 +8,12 @@ public sealed interface ChannelTarget {
     record HttpTarget(String url) implements ChannelTarget {
     }
 
-    /** @param protocol effective wire protocol for this route; null = legacy framing */
+    /** Null {@code protocol} = legacy framing. */
     record TcpTarget(String host, int port, TcpProtocol protocol) implements ChannelTarget {
     }
 
-    /**
-     * @param filename deterministic per-delivery name (the activity id) so an activity
-     *                 retry overwrites the same remote file instead of duplicating it
-     */
+    /** {@code filename} is the activity id, so a retry overwrites the same remote file
+     *  instead of duplicating it. */
     record FtpTarget(String host, int port, String user, String password,
                      String folder, String filename) implements ChannelTarget {
     }

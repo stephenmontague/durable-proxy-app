@@ -9,9 +9,8 @@ import io.temporal.spring.boot.ActivityImpl;
 import org.springframework.stereotype.Component;
 
 /**
- * Runs the control activities in the proxy process. Registered on the control task queue alongside
- * the {@link com.proxyapp.temporal.workflow.ProxyControlWorkflow}, so the workflow's pushes land on
- * this same worker.
+ * Runs the control activities in the proxy process. Registered on the control task queue alongside the
+ * control workflow, so the workflow's pushes land on this same worker.
  */
 @Component
 @ActivityImpl(taskQueues = "${proxy.control-task-queue}")
@@ -32,8 +31,8 @@ public class ControlActivitiesImpl implements ControlActivities {
     public AppliedStatus reconcile(ProxyControlState desired) {
         reconciler.apply(desired);
         AppliedStatus applied = reporter.snapshot();
-        // The workflow records this return value, so adopt it as the reporter's baseline to keep the
-        // link-health timer from re-reporting the same state as a redundant Action.
+        // The workflow records this return value, so adopt it as the reporter's baseline and keep the
+        // link-health timer from re-reporting it as a redundant Action.
         reporter.syncBaseline(applied);
         return applied;
     }
@@ -45,9 +44,8 @@ public class ControlActivitiesImpl implements ControlActivities {
 
     @Override
     public AppliedStatus probeSessions() {
-        // Pure live read: snapshot() reads the volatile per-session state directly from the in-process
-        // TcpSessionManager. No apply, no syncBaseline — a probe must not mutate reconcile state or
-        // suppress the link-health transition timer.
+        // No apply, no syncBaseline — a probe must not mutate reconcile state or suppress the
+        // link-health transition timer.
         return reporter.snapshot();
     }
 }

@@ -41,8 +41,8 @@ class ProxyControlWorkflowTest {
         env = TestWorkflowEnvironment.newInstance();
         Worker worker = env.newWorker(TASK_QUEUE);
         worker.registerWorkflowImplementationTypes(ProxyControlWorkflowImpl.class);
-        // The push-based workflow schedules a reconcile activity on every version change; register a
-        // recording stand-in so those pushes complete in-test (the real one runs in the proxy JVM).
+        // Every version change schedules a reconcile activity, so register a recording stand-in to
+        // let those pushes complete in-test.
         activities = new RecordingActivities();
         worker.registerActivitiesImplementations(activities);
         env.start();

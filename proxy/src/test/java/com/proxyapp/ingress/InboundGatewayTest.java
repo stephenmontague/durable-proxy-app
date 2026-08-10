@@ -37,7 +37,7 @@ class InboundGatewayTest {
         String first = InboundGateway.activityId(stream, MESSAGE);
         String second = InboundGateway.activityId(stream, MESSAGE);
 
-        // The natural id is still the prefix (traceable), but each push gets a distinct suffix so
+        // The natural id stays the prefix (traceable), but a distinct suffix per push means
         // byte-identical frames are delivered individually rather than deduped.
         assertThat(first).startsWith("SCAN_EVENT-abc123-");
         assertThat(second).startsWith("SCAN_EVENT-abc123-");

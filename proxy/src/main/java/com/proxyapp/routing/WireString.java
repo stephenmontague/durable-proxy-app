@@ -5,18 +5,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Escape syntax for TCP wire-protocol strings (delimiters, ack/nak templates): a way to
- * write control bytes in plain printable config.
- *
- * <p>The grammar below and its error messages are part of the control API: a client that lets an
- * operator type these should implement the same grammar and report the same errors.
- *
- * <p>Grammar: printable ASCII (0x20–0x7E) literals, except {@code \} starts an escape
- * ({@code \\ \r \n \t \< \xHH}) and {@code <} starts a named control token
- * ({@code <STX>}, {@code <VT>}, {@code <FS>}, … — the full C0 set plus {@code <DEL>}).
- * A literal {@code <} is written {@code \<}. Bytes map 1:1 via ISO-8859-1.
- *
- * <p>Pure and deterministic — safe inside workflow signal handlers (via ConfigValidator).
+ * Escape syntax for writing control bytes in printable TCP wire config (delimiters, ack/nak templates).
+ * Printable ASCII literals, except {@code \} starts an escape ({@code \\ \r \n \t \< \xHH}) and
+ * {@code <} a named control token ({@code <STX>}, {@code <VT>}, … the C0 set plus {@code <DEL>}); a
+ * literal {@code <} is {@code \<}. Bytes map 1:1 via ISO-8859-1. Pure, so it is safe inside workflow
+ * handlers. This grammar and its error messages are part of the control API.
  */
 public final class WireString {
 
@@ -41,10 +34,7 @@ public final class WireString {
         return decodeToString(text).getBytes(StandardCharsets.ISO_8859_1);
     }
 
-    /**
-     * Decoded form as a String of chars 0–255 — used for reply templates so
-     * {@code {activityId}}/{@code {reason}} substitution can stay string-level.
-     */
+    /** Decoded form as chars 0–255, so reply-template substitution can stay string-level. */
     public static String decodeToString(String text) {
         StringBuilder out = new StringBuilder(text.length());
         int i = 0;

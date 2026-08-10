@@ -134,7 +134,7 @@ public class ProxyAppConfig {
                 ftpIngressListener, tcpSessionManager);
     }
 
-    /** Boot trigger that replaces the 2s control poll: ensure the workflow + one reconcile. */
+    /** Boot trigger: ensure the control workflow exists, then request one reconcile. */
     @Bean
     public ControlBootstrap controlBootstrap(WorkflowClient workflowClient,
                                              ProxyControlStarter starter) {

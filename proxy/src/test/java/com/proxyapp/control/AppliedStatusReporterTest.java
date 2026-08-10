@@ -27,8 +27,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The reporter must cost zero Temporal Actions when nothing changed, so what's worth locking is
- * when it stays silent. Tests drive {@code reportIfChanged()} directly rather than the scheduler.
+ * The reporter must cost zero Temporal Actions when nothing changed, so these tests pin when it stays
+ * silent. They drive {@code reportIfChanged()} directly rather than the scheduler.
  */
 class AppliedStatusReporterTest {
 

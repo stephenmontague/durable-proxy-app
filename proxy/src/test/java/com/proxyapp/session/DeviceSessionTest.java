@@ -32,10 +32,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * CLIENT-mode session behavior against a stub server: connect→UP, reconnect on drop, and
- * UP↔DOWN transitions driven by missed heartbeats (both the passive watchdog and the active
- * ping/expect-reply probe). Intervals come from config in seconds, so a few tests run a couple of
- * real seconds — backoff is dialed down so reconnects are quick.
+ * CLIENT-mode session behavior against a stub server: connect→UP, reconnect on drop, and UP↔DOWN
+ * transitions from missed heartbeats (passive watchdog and active ping alike). Intervals are
+ * config-driven in seconds, so a few tests take a couple of real seconds.
  */
 class DeviceSessionTest {
 

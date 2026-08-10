@@ -8,15 +8,11 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * {@link MessageTypeResolver} that types an inbound frame by matching its <b>content</b> (decoded
- * ISO-8859-1) against regexes — for persistent-session sockets that carry several message types.
- * The match is a substring search ({@code find}), so a rule like {@code "kind"\s*:\s*"status"}
- * types a JSON frame. Patterns: regex → message type.
- *
- * <p><b>Ordering caveat:</b> the first matching pattern wins, but iteration order is whatever the
- * incoming {@link ResolverConfig#patterns()} map provides — for a Jackson-deserialized
- * {@code HashMap} that is hash order, not the order the operator wrote. Write mutually exclusive
- * patterns. Making order authoritative would mean imposing it at the deserialization boundary.
+ * {@link MessageTypeResolver} that types an inbound frame by matching its content (decoded ISO-8859-1)
+ * against regex → message type rules, for persistent-session sockets carrying several types. The match
+ * is a substring {@code find}, so {@code "kind"\s*:\s*"status"} types a JSON frame. First match wins,
+ * but {@link ResolverConfig#patterns()} arrives as a Jackson {@code HashMap} in hash order, not the
+ * operator's — so write mutually exclusive patterns.
  */
 public class ContentPatternResolver implements MessageTypeResolver {
 

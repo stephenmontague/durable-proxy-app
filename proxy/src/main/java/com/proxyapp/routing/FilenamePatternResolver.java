@@ -7,13 +7,10 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Reference {@link MessageTypeResolver}: maps inbound filenames to message types via regex,
- * for FTP devices that drop multiple types into one folder.
- *
- * <p><b>Ordering caveat:</b> the first matching pattern wins, but iteration order is whatever the
- * incoming {@link ResolverConfig#patterns()} map provides — for a Jackson-deserialized
- * {@code HashMap} that is hash order, not the order the operator wrote. Write mutually exclusive
- * patterns. Making order authoritative would mean imposing it at the deserialization boundary.
+ * Reference {@link MessageTypeResolver}: maps inbound filenames to message types via regex, for FTP
+ * devices that drop multiple types into one folder. First match wins, but
+ * {@link ResolverConfig#patterns()} arrives as a Jackson {@code HashMap} in hash order, not the
+ * operator's — so write mutually exclusive patterns.
  */
 public class FilenamePatternResolver implements MessageTypeResolver {
 

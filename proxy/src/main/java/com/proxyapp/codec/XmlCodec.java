@@ -12,10 +12,9 @@ import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Codec for edge targets that speak XML (ASN documents, HL7-style payloads, etc.). Like
- * {@link JsonCodec} the proxy doesn't transform the payload — encoding sends it as-is — the only
- * job on decode is pulling the dedup business id out of the configured element, falling back to a
- * content hash when the element is absent or the body isn't parseable.
+ * Codec for edge targets that speak XML. Like {@link JsonCodec} the payload passes through untouched;
+ * decode only pulls the dedup business id from the configured element, falling back to a content hash
+ * when it is absent or the body won't parse.
  */
 public class XmlCodec implements MessageCodec {
 

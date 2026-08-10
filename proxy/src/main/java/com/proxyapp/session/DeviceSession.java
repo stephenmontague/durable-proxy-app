@@ -35,26 +35,14 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
- * One persistent connection to a device. CLIENT role dials the device and keeps the socket warm,
- * reconnecting with backoff on any drop. SERVER role is passive — the {@link TcpSessionManager}
- * acceptor owns the listen port and hands this session each accepted socket (after handshake demux
- * for shared ports) via {@link #serveAcceptedSocket}. Either way the heartbeat ping and liveness
- * check run as periodic tasks on the shared scheduler and the read loop is identical.
+ * One persistent connection to a device. CLIENT dials and keeps the socket warm, reconnecting with
+ * backoff; SERVER is passive, taking accepted sockets from the {@link TcpSessionManager} acceptor.
+ * Lives in worker-process code, never a workflow or activity — it blocks on socket I/O, and
+ * heartbeats must never become workflow events.
  *
- * <p>Owned by {@link TcpSessionManager} and lives entirely in worker-process code — never a
- * Temporal workflow or activity (it does blocking socket I/O, and heartbeats must never become
- * workflow events).
- *
- * <p><b>Liveness</b> ({@code missThreshold} consecutive misses → DOWN + reconnect; any inbound
- * frame is proof of life and resets the counter):
- * <ul>
- *   <li><b>Active probe</b> — {@code sendIntervalSec} + {@code expectReply}: send a ping each
- *       interval; a miss is counted when no reply arrives within {@code replyTimeoutMs}.</li>
- *   <li><b>Passive watchdog</b> — {@code expectInboundSec}: a miss is counted for each window with
- *       no inbound frame (the device pushes its own heartbeats).</li>
- *   <li><b>Keepalive only</b> — a ping with no {@code expectReply} and no watchdog just keeps the
- *       link warm; DOWN is then detected only by TCP errors.</li>
- * </ul>
+ * <p>Liveness: {@code missThreshold} consecutive misses go DOWN and reconnect; any inbound frame
+ * resets the counter. An active probe counts a miss per unanswered ping, a passive watchdog one per
+ * silent window; a ping with neither only keeps the link warm, leaving DOWN to TCP errors.
  */
 final class DeviceSession {
 
@@ -91,11 +79,10 @@ final class DeviceSession {
     private final int missThreshold;
     private final boolean activeProbe; // sendIntervalSec != null && expectReply != null
 
-    // Runtime state.
     private volatile boolean closed;
     private volatile DeviceSessionState state = DeviceSessionState.CONNECTING;
-    // Diagnostics surfaced in status() so the "why" of a drop rides the egress connection back to the
-    // cloud (the local logs are on an unreachable edge machine). Guarded by eventLock.
+    // Diagnostics surfaced in status(), since the local logs sit on an unreachable edge machine.
+    // Guarded by eventLock.
     private final Object eventLock = new Object();
     private final Deque<SessionEvent> events = new ArrayDeque<>();
     private String lastError;        // reason of the most recent DOWN; cleared on UP, kept on CONNECTING
@@ -176,17 +163,11 @@ final class DeviceSession {
     }
 
     /**
-     * The single writer for {@link #state}. A no-op when the state is unchanged, so a specific fault
-     * reason recorded by one thread (e.g. "3 missed heartbeat(s)") is not clobbered by the read
-     * loop's follow-up DOWN. Stamps the transition, appends a bounded event, and tracks the reason:
-     * DOWN sets {@link #lastError}, UP clears it, CONNECTING preserves it (so a reconnecting link
-     * still explains its last drop).
-     *
-     * <p>Leaving UP also wakes any send parked in {@link #send}'s ack wait, so a dropped link fails
-     * the send immediately instead of burning the full {@code sendAckTimeoutMs}. The notify happens
-     * after {@code eventLock} is released: the only lock order this creates is eventLock → ackLock,
-     * and no path takes them the other way ({@link #onFrame} holds ackLock but never transitions,
-     * and {@code send} releases the monitor inside {@code wait}).
+     * The single writer for {@link #state}, and a no-op when unchanged so a specific fault reason isn't
+     * clobbered by the read loop's follow-up DOWN. DOWN sets {@link #lastError}, UP clears it,
+     * CONNECTING preserves it. Leaving UP also wakes a send parked in its ack wait, failing it at once
+     * instead of burning {@code sendAckTimeoutMs}; that notify is sent after {@code eventLock} is
+     * released, so the lock order is only ever eventLock → ackLock.
      */
     private void transition(DeviceSessionState newState, String detail) {
         boolean leftUp;
@@ -242,11 +223,10 @@ final class DeviceSession {
     }
 
     /**
-     * Write one outbound message onto the live socket and (unless fire-and-forget) await its ack.
-     * Single-in-flight: one send at a time; the next inbound frame containing the configured
-     * {@code expectedAck} completes it. Throws {@link SessionSendException} on a down link, a busy
-     * slot, a write error, or a missing ack — the caller is the Temporal activity, so a throw means
-     * the message stays durable and the activity retries.
+     * Write one outbound message onto the live socket and, unless fire-and-forget, await its ack.
+     * Single-in-flight: the next inbound frame containing {@code expectedAck} completes it. Throws
+     * {@link SessionSendException} on a down link, busy slot, write error, or missing ack — the caller
+     * is the Temporal activity, so a throw keeps the message durable and retries.
      */
     void send(byte[] payload) {
         boolean acquired;
@@ -281,8 +261,8 @@ final class DeviceSession {
                     ackLock.wait(remaining);
                 }
                 if (!ackReceived) {
-                    // transition() wakes us the moment the link leaves UP, so distinguish "the
-                    // device went away mid-send" from "the device stayed up but never acked".
+                    // transition() wakes us the moment the link leaves UP, so tell "device went away
+                    // mid-send" apart from "device stayed up but never acked".
                     throw new SessionSendException(state == DeviceSessionState.UP
                             ? "device " + config.deviceId() + " sent no ack within "
                                     + sendAckTimeoutMs + "ms"
@@ -345,9 +325,8 @@ final class DeviceSession {
     }
 
     /**
-     * SERVER: serve a socket the manager's acceptor handed us (already demuxed to this device by
-     * listen port + handshake). A fresh dial-in supersedes the current connection; on drop the link
-     * goes DOWN until the device dials in again.
+     * SERVER: serve a socket the acceptor already demuxed to this device. A fresh dial-in supersedes
+     * the current connection; on drop the link stays DOWN until the device dials in again.
      */
     void serveAcceptedSocket(Socket s) {
         if (closed) {
@@ -430,10 +409,8 @@ final class DeviceSession {
         }
     }
 
-    /**
-     * Any inbound frame is proof of life. A frame carrying a pending send's {@code expectedAck}
-     * completes that send; one carrying {@code expectReply} answers a ping.
-     */
+    /** Any inbound frame is proof of life; one carrying {@code expectedAck} completes a pending send,
+     *  one carrying {@code expectReply} answers a ping. */
     private void onFrame(byte[] frame) {
         lastInboundAtMs = nowMs();
         consecutiveMisses.set(0);
@@ -450,8 +427,7 @@ final class DeviceSession {
             hb.info("{} <- PONG #{} (link up {})", config.deviceId(), beats, uptime());
             return;
         }
-        // Unsolicited device -> cloud frame: hand to the inbound sink (-> DeliverToCloud). A failed
-        // enqueue must not drop the link, so swallow and let the device re-send if it retries.
+        // A failed enqueue must not drop the link, so swallow and let the device re-send.
         try {
             inboundSink.accept(frame);
         } catch (RuntimeException e) {

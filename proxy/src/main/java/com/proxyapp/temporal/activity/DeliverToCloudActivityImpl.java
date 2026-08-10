@@ -38,8 +38,7 @@ public class DeliverToCloudActivityImpl implements DeliverToCloudActivity {
 
     @Override
     public void deliver(CanonicalMessage message) {
-        // Read the catalog from the live route table — the Reconciler rebuilds it from control
-        // state each reconcile, so the cloudEndpoint reflects the operator's latest catalog edits.
+        // The live route table, rebuilt each reconcile, so cloudEndpoint reflects the latest edits.
         CatalogEntry entry = routingState.table().catalog()
                 .require(MessageType.of(message.messageType()));
         String url = properties.cloud().baseUrl() + entry.cloudEndpoint();

@@ -30,12 +30,10 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * The single funnel for all inbound (edge -> cloud) traffic: channel -> type -> decode ->
- * start a durable {@code DeliverToCloud} standalone activity -> ack.
- *
- * <p>Ack-after-enqueue: the transport listener only acks the edge target after Temporal has
- * accepted the activity start, so a retrying device gets correct semantics. A duplicate
- * push (same activity id) is acked as already-enqueued, not re-executed.
+ * The single funnel for all inbound (edge -> cloud) traffic: channel -> type -> decode -> start a
+ * durable {@code DeliverToCloud} activity -> ack. The listener acks only after Temporal accepted the
+ * start, so a retrying device gets correct semantics; a duplicate push is acked as already-enqueued
+ * rather than re-executed.
  */
 public class InboundGateway {
 
@@ -80,11 +78,10 @@ public class InboundGateway {
     }
 
     /**
-     * Type and enqueue an unsolicited frame from a device's persistent TCP session. The session has
-     * no inbound channel binding, so the type comes from {@code tcpSession.inboundType} (an
-     * EDGE_TO_CLOUD type). Frames with no inbound type configured — or while the install is
-     * disabled — are dropped; the device link stays up regardless. (Multi-type sockets would
-     * instead resolve each frame via a {@link MessageTypeResolver}, the documented extension.)
+     * Type and enqueue an unsolicited frame from a device's persistent TCP session. The session has no
+     * inbound channel binding, so the type comes from {@code tcpSession.inboundType}, or from a
+     * {@link MessageTypeResolver} on multi-type sockets. Frames are dropped when no inbound type is
+     * configured or the install is disabled; the device link stays up regardless.
      */
     public void enqueueSessionFrame(DeviceSessionConfig config, byte[] raw) {
         if (!routingState.enabled()) {
@@ -114,9 +111,8 @@ public class InboundGateway {
         try {
             enqueue(entry, raw, "device '" + config.deviceId() + "' session");
         } catch (IngressException e) {
-            // Best-effort for unsolicited session telemetry: if the enqueue fails (e.g. Temporal
-            // unavailable), drop this frame and keep the persistent link up — tearing the socket
-            // down would help nothing, and the device pushes fresh readings on its own cadence.
+            // Drop the frame and keep the link up if the enqueue fails — tearing the socket down
+            // would help nothing, and the device pushes fresh readings on its own cadence.
             log.warn("dropping session frame from device {} ({}): {}",
                     config.deviceId(), e.reason(), e.getMessage());
         }
@@ -162,10 +158,9 @@ public class InboundGateway {
             log.info("duplicate push for {} ignored", activityId);
             return new EnqueueResult(activityId, true);
         } catch (Exception e) {
-            // Decoding already succeeded above, so a failure here is the enqueue-to-Temporal call
-            // itself — unreachable/timeout after the SDK's own gRPC retries. Surface it as a
-            // retryable upstream error so the transport does NOT ack (HTTP 503, TCP nak, FTP keeps
-            // the file); the device retries and nothing is silently dropped.
+            // Decoding already succeeded, so a failure here is the enqueue call itself. Surface it as
+            // retryable so the transport does NOT ack (HTTP 503, TCP nak, FTP keeps the file) and the
+            // device retries instead of the message being silently dropped.
             log.warn("could not enqueue {} from {}: {}", activityId, source, e.toString());
             throw new IngressException(IngressException.Reason.UPSTREAM_UNAVAILABLE,
                     "could not enqueue to Temporal: " + e.getMessage());
@@ -173,12 +168,10 @@ public class InboundGateway {
     }
 
     /**
-     * The Temporal activity id that drives dedup. Normally {@code {type}-{businessId}}, so identical
-     * pushes collapse to a single delivery (REJECT_DUPLICATE reuse policy). When the type sets
-     * {@code allowDuplicates}, a unique suffix is appended so every push gets its own activity id —
-     * for event/telemetry streams where two byte-identical frames are two real observations, not a
-     * retransmit. Trade-off: a transport-level retry of one push can then double-deliver, so it stays
-     * at-least-once. Package-private + static so the dedup decision is unit-testable without Temporal.
+     * The activity id that drives dedup: {@code {type}-{businessId}}, so identical pushes collapse to
+     * one delivery under REJECT_DUPLICATE. {@code allowDuplicates} appends a unique suffix instead,
+     * giving every push its own id; the trade-off is that a transport retry can then double-deliver,
+     * leaving those types at-least-once.
      */
     static String activityId(CatalogEntry entry, CanonicalMessage message) {
         return entry.allowDuplicates()

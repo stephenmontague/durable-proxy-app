@@ -25,10 +25,8 @@ public record ProxyProperties(String taskQueue, String controlTaskQueue, String 
     }
 
     /**
-     * Site infrastructure, set once at install by IT.
-     *
-     * @param tcpPortPool inbound TCP ports available for routing bindings, as a range
-     *                    ("6000-6010") or comma list ("6000,6001")
+     * Site infrastructure, set once at install by IT. {@code tcpPortPool} is a range ("6000-6010") or
+     * comma list ("6000,6001") of inbound ports available for routing bindings.
      */
     public record Ingress(String tcpPortPool, int ftpPort, String ftpRoot,
                           String ftpUser, String ftpPassword) {
@@ -39,17 +37,14 @@ public record ProxyProperties(String taskQueue, String controlTaskQueue, String 
     }
 
     /**
-     * Optional bootstrap device config for a <i>brand-new</i> control workflow. Ignored once one
-     * exists, since Temporal is then the source of truth — so this cannot be used to push config
-     * to a running install. Leave blank to start empty and configure through the control API.
+     * Optional bootstrap device config for a brand-new control workflow. Ignored once one exists, since
+     * Temporal is then the source of truth, so this cannot push config to a running install.
      */
     public record Seed(String devicesResource) {
     }
 
-    /**
-     * The concrete inbound TCP ports this site made available. Validated during property binding
-     * (see {@link Ingress}), so by the time anything calls this the spec is known to parse.
-     */
+    /** The concrete inbound TCP ports this site made available. Validated during property binding, so
+     *  by the time anything calls this the spec is known to parse. */
     public List<Integer> tcpPortPool() {
         return expandPool(ingress == null ? null : ingress.tcpPortPool());
     }

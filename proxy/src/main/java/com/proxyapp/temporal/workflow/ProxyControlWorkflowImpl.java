@@ -25,12 +25,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Push-based control plane. The workflow holds desired state; config Updates mutate it and bump
- * {@code version}; the run loop wakes on a version change (or a manual/boot {@code requestReconcile},
- * or a lifecycle command) and pushes the work to the proxy as an <b>activity</b> — reconcile applies
- * config, deliverLifecycle hands a restart/shutdown to the proxy (which exits out-of-band). Between
- * events the loop parks on a no-timeout {@link Workflow#await} (zero Actions), and continues-as-new
- * only when the server suggests it via {@link io.temporal.workflow.WorkflowInfo#isContinueAsNewSuggested()}.
+ * Push-based control plane. Updates mutate desired state and bump {@code version}; the run loop wakes
+ * on a version change, a {@code requestReconcile}, or a lifecycle command, and pushes the work to the
+ * proxy as an activity. Between events it parks on a no-timeout {@link Workflow#await} at zero
+ * Actions, continuing-as-new only when the server suggests it.
  */
 @WorkflowImpl(taskQueues = "${proxy.control-task-queue}")
 public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
@@ -38,9 +36,9 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
     private static final Logger log = Workflow.getLogger(ProxyControlWorkflowImpl.class);
 
     /**
-     * Reconcile must converge, so it retries forever (it is idempotent; a validation mismatch only
-     * logs and returns, it does not throw). Lifecycle delivery is attempt-once: the proxy acks
-     * durably before it exits, so an automatic retry could otherwise re-trigger an exit loop.
+     * Reconcile must converge, so it retries forever (idempotent; a validation mismatch only logs).
+     * Lifecycle delivery is attempt-once: the proxy acks durably before it exits, so an automatic
+     * retry could re-trigger an exit loop.
      */
     private final ControlActivities activities = Workflow.newActivityStub(
             ControlActivities.class,
@@ -52,9 +50,8 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
                             .setStartToCloseTimeout(Duration.ofSeconds(15))
                             .setRetryOptions(RetryOptions.newBuilder().setMaximumAttempts(1).build())
                             .build(),
-                    // ProbeSessions is an on-demand read behind a synchronous checkSessions Update, so
-                    // it must fail FAST when the proxy is unreachable (surfacing "proxy down") instead
-                    // of retrying forever like reconcile.
+                    // Backs a synchronous Update, so it must fail FAST when the proxy is unreachable
+                    // (surfacing "proxy down") instead of retrying forever like reconcile.
                     "ProbeSessions", ActivityOptions.newBuilder()
                             .setStartToCloseTimeout(Duration.ofSeconds(5))
                             .setScheduleToCloseTimeout(Duration.ofSeconds(10))
@@ -77,9 +74,9 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
     }
 
     /**
-     * @param initialState unused — the {@code @WorkflowInit} constructor consumed it. Kept because
-     *                     {@code @WorkflowMethod} arguments are the durable contract: removing it
-     *                     would break replay of running executions.
+     * {@code initialState} is unused — the {@code @WorkflowInit} constructor consumed it. Kept because
+     * {@code @WorkflowMethod} arguments are the durable contract: removing it breaks replay of
+     * running executions.
      */
     @Override
     public void run(ProxyControlState initialState) {
@@ -89,7 +86,6 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
                     || reconcileRequested);
 
             if (lifecyclePending()) {
-                // Deliver once; the proxy acks (clearing the command) and exits OUTSIDE the activity.
                 // Tracked by requestId so a proxy that can't be reached doesn't spin the loop.
                 deliveredLifecycle = state.getLifecycleRequestId();
                 try {
@@ -103,8 +99,7 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
             if (state.getVersion() != reconciledVersion || reconcileRequested) {
                 reconcileRequested = false;
                 long target = state.getVersion();
-                // Pass desired state as the activity input (durable snapshot); the proxy applies it
-                // and returns what it actually has running, which we record for the cloud to read.
+                // The proxy returns what it actually has running; record it for the cloud to read.
                 state.setApplied(activities.reconcile(state));
                 reconciledVersion = target;
             }
@@ -256,17 +251,15 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
 
     @Override
     public long reportApplied(AppliedStatus status) {
-        // Applied state is observability only — record it without bumping version or waking the
-        // reconcile loop. Return desired version so the proxy can detect drift and self-heal.
+        // Observability only: no version bump, no reconcile wake. The returned desired version lets
+        // the proxy detect drift and self-heal.
         state.setApplied(status);
         return state.getVersion();
     }
 
     @Override
     public AppliedStatus checkSessions() {
-        // On-demand live probe: ask the proxy worker for its current session state, refresh the stored
-        // applied snapshot (so cheap getState readers benefit too), and return the live result. Like
-        // reportApplied this is observability only — no version bump, no reconcile wake.
+        // Refresh the stored snapshot too, so cheap getState readers benefit. Observability only.
         AppliedStatus live = activities.probeSessions();
         state.setApplied(live);
         return live;
@@ -284,11 +277,10 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
     }
 
     /**
-     * The catalog to mutate. A long-running workflow whose state was written before the catalog
-     * became operator-editable has a null {@code catalogEntries}; synthesize a degraded one from
-     * {@code typeDirections} (codec defaults to json, endpoints blank) so a single edit doesn't
-     * NPE. The synthesized entries are lossy, so prefer {@code importCatalog} on such a workflow —
-     * it replaces the whole catalog with full entries rather than patching a guess.
+     * The catalog to mutate. State written before the catalog became editable has a null
+     * {@code catalogEntries}, so synthesize a lossy one from {@code typeDirections} (codec json,
+     * endpoints blank) rather than NPE. Prefer {@code importCatalog} on such a workflow — it replaces
+     * the catalog with full entries instead of patching a guess.
      */
     private List<CatalogEntryDto> currentCatalog() {
         if (state.getCatalogEntries() != null) {
@@ -300,7 +292,7 @@ public class ProxyControlWorkflowImpl implements ProxyControlWorkflow {
         return synthesized;
     }
 
-    /** Store the catalog and recompute the derived typeDirections projection in one place. */
+    /** Store the catalog and recompute the derived typeDirections projection. */
     private void setCatalog(List<CatalogEntryDto> entries) {
         state.setCatalogEntries(entries);
         Map<String, String> typeDirections = new LinkedHashMap<>();

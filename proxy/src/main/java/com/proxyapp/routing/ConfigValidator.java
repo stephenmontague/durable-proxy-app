@@ -16,13 +16,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Validates a proposed routing config before it goes live. Pure and deterministic so the
- * same checks run inside the control workflow's update handlers (against the slim
- * {@code typeDirections} view) and on the proxy before applying.
- *
- * <p><b>These error strings are part of the control API</b> — a rejected update returns them in
- * {@code lastError}. A client that pre-validates should reproduce them exactly, so rewording one
- * here is a breaking change.
+ * Validates a proposed routing config before it goes live. Pure and deterministic, so the same checks
+ * run inside the control workflow's update handlers and on the proxy before applying. These error
+ * strings are part of the control API — a rejected update returns them in {@code lastError}, so
+ * rewording one is a breaking change.
  */
 public final class ConfigValidator {
 
@@ -35,12 +32,7 @@ public final class ConfigValidator {
         return validate(catalog.typeDirections(), tcpPortPool, devices);
     }
 
-    /**
-     * @param typeDirections type name -> Direction name, from the catalog
-     * @param tcpPortPool    inbound TCP ports IT made available at install time
-     * @param devices        the proposed config
-     * @return human-readable errors; empty means the config is valid
-     */
+    /** Returns human-readable errors; empty means the config is valid. */
     public static List<String> validate(Map<String, String> typeDirections,
                                         List<Integer> tcpPortPool, List<EdgeConfig> devices) {
         List<String> errors = new ArrayList<>();
@@ -76,10 +68,8 @@ public final class ConfigValidator {
         return errors;
     }
 
-    /**
-     * Persistent SERVER devices may share one listen port (port economy), but only if each carries a
-     * distinct, non-blank handshakeId so the proxy can tell them apart on connect.
-     */
+    /** Persistent SERVER devices may share a listen port, but only with distinct, non-blank
+     *  handshakeIds so the proxy can tell them apart on connect. */
     private static void validateServerPorts(List<EdgeConfig> devices, List<String> errors) {
         Map<Integer, List<EdgeConfig>> byPort = new HashMap<>();
         for (EdgeConfig device : devices) {
@@ -223,9 +213,8 @@ public final class ConfigValidator {
     }
 
     /**
-     * Persistent-session rules, applied only in PERSISTENT mode. CLIENT needs host+port; SERVER
-     * needs listenPort (plus a handshake id when the port is shared); a persistent session needs
-     * at least one liveness mechanism; all heartbeat WireString fields must parse.
+     * PERSISTENT-mode rules: CLIENT needs host+port, SERVER needs listenPort, at least one liveness
+     * mechanism is required, and heartbeat WireString fields must parse.
      */
     private static void validateTcpSession(String prefix, EdgeConfig device, TcpSession s,
                                            Map<String, String> typeDirections, List<String> errors) {
@@ -244,8 +233,7 @@ public final class ConfigValidator {
                 errors.add(prefix + ".port must be between 1 and 65535");
             }
         } else {
-            // SERVER always needs a port to listen on; handshakeId only disambiguates a shared port
-            // (checked across devices in validateServerPorts).
+            // handshakeId only disambiguates a shared port; validateServerPorts checks that.
             if (s.listenPort() == null) {
                 errors.add(prefix + ": SERVER role requires a listenPort");
             } else if (s.listenPort() < 1 || s.listenPort() > 65535) {

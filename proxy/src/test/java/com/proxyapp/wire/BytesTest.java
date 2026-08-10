@@ -7,8 +7,8 @@ import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * These were one method named {@code contains} with two different implementations. The distinction
- * is load-bearing — a full scan per appended byte would make the reply read quadratic — so pin it.
+ * These were one method named {@code contains} with two implementations. The distinction is
+ * load-bearing — a full scan per appended byte would make the reply read quadratic — so pin it.
  */
 class BytesTest {
 
@@ -25,7 +25,7 @@ class BytesTest {
     @Test
     void endsWithOnlyMatchesTheTail() {
         byte[] haystack = b("noise ACK trailing");
-        // The very difference that matters: present, but not at the end.
+        // Present, but not at the end — the case the two methods disagree on.
         assertThat(Bytes.endsWith(haystack, haystack.length, b("ACK"))).isFalse();
         assertThat(Bytes.endsWith(haystack, haystack.length, b("trailing"))).isTrue();
     }

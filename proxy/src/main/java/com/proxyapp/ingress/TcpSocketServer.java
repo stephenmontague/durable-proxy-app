@@ -28,24 +28,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * TCP ingress: the listen port is the channel. Accept loops run on a dedicated executor
- * (never Tomcat or Temporal poller threads); the Reconciler opens/closes ports as config
- * changes and hot-swaps each port's wire protocol without dropping the ServerSocket.
- *
- * <p>Wire behavior per port comes from the binding's {@link TcpProtocol}:
- * <ul>
- *   <li><b>Legacy (null protocol or no endDelimiter):</b> device writes the payload and
- *       half-closes; one message per connection; reply {@code ACK <activityId>\n} only
- *       after Temporal accepted the enqueue, else {@code ERR ...\n} (or the configured
- *       ack/nak templates).</li>
- *   <li><b>Framed (endDelimiter set):</b> persistent connections carrying multiple
- *       frames; noise before a start delimiter is discarded; each frame is enqueued and
- *       acked/nacked individually (ack-after-enqueue per frame); a rejected frame nacks
- *       and the loop continues.</li>
- * </ul>
- *
- * <p>Connections snapshot their protocol once at accept — a hot config change applies to
- * new connections, never mid-conversation.
+ * TCP ingress: the listen port is the channel. Accept loops run on a dedicated executor, never Tomcat
+ * or Temporal poller threads; the Reconciler opens/closes ports and hot-swaps a port's
+ * {@link TcpProtocol} without dropping the ServerSocket. Legacy framing is one message per connection,
+ * ended by the device's half-close; framed keeps it open for many frames, each acked after its own
+ * enqueue. Connections snapshot their protocol at accept, so a hot change never lands mid-conversation.
  */
 public class TcpSocketServer {
 
@@ -153,8 +140,8 @@ public class TcpSocketServer {
                 if (serverSocket.isClosed()) {
                     break; // closed by closeListener — normal shutdown
                 }
-                // Transient accept error (e.g. fd exhaustion, peer reset during accept): keep the
-                // listener alive — returning here would silently stop ingress with version unchanged.
+                // Keep the listener alive on a transient accept error — returning here would
+                // silently stop ingress with version unchanged.
                 log.warn("accept failed on TCP port {}: {} — keeping listener up", port, e.getMessage());
                 sleepBackoff();
             }

@@ -22,13 +22,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Diffs desired control state against what is running and hot-applies it — starts/stops
- * ingress listeners, swaps the route table, and pauses/resumes outbound processing —
- * with no restart.
- *
- * <p>"Off" is a soft disable: ingress listeners stop and the data worker suspends polling,
- * but the control worker (and the egress gRPC connection) stays alive so the cloud can
- * turn the install back on.
+ * Diffs desired control state against what is running and hot-applies it with no restart: ingress
+ * listeners, route table, outbound processing. "Off" is a soft disable — listeners stop and the data
+ * worker suspends polling, but the control worker and its egress connection stay alive so the cloud
+ * can turn the install back on.
  */
 public class Reconciler {
 
@@ -56,8 +53,7 @@ public class Reconciler {
     }
 
     public synchronized void apply(ProxyControlState desired) {
-        // Never regress: a stale push (older version than what's live) is dropped. The awaited
-        // workflow loop already serializes reconciles, so this is a defensive guard.
+        // Never regress on a stale push. The workflow loop already serializes reconciles; defensive.
         if (desired.getVersion() < routingState.appliedVersion()) {
             log.debug("ignoring stale control state v{} (already applied v{})",
                     desired.getVersion(), routingState.appliedVersion());
@@ -68,8 +64,7 @@ public class Reconciler {
         try {
             effectiveCatalog = catalogFor(desired);
         } catch (RuntimeException e) {
-            // Malformed catalog (e.g. duplicate types) — the workflow validates first, so this
-            // is a belt-and-braces guard. Keep the last good config live rather than crash.
+            // The workflow validates first; keep the last good config live rather than crash.
             log.error("refusing to apply control state v{}: invalid catalog: {}",
                     desired.getVersion(), e.getMessage());
             return;
@@ -78,8 +73,7 @@ public class Reconciler {
         List<String> errors = ConfigValidator.validate(
                 effectiveCatalog, properties.tcpPortPool(), desired.getDevices());
         if (!errors.isEmpty()) {
-            // The control workflow validates before accepting, so this only fires when the
-            // local pool disagrees with what the workflow was seeded with.
+            // Only fires when the local pool disagrees with what the workflow was seeded with.
             log.error("refusing to apply control state v{}: {}", desired.getVersion(), errors);
             return;
         }
@@ -112,10 +106,9 @@ public class Reconciler {
     }
 
     /**
-     * The catalog to apply this reconcile: the operator-edited one held in control state, or —
-     * when control state carries none ({@code catalogEntries} null or empty) — the boot profile
-     * catalog this proxy was built with. That fallback is what lets a proxy upgrade in front of a
-     * control workflow whose stored state predates the editable catalog, without dropping routes.
+     * The catalog to apply: the operator-edited one in control state, falling back to the boot
+     * profile catalog when control state carries none. The fallback lets a proxy upgrade ahead of a
+     * workflow whose stored state predates the editable catalog without dropping routes.
      */
     private MessageCatalog catalogFor(ProxyControlState desired) {
         List<CatalogEntryDto> entries = desired.getCatalogEntries();

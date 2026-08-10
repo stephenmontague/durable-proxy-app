@@ -21,11 +21,10 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Ensures the singleton control workflow exists, seeding it with the catalog's slim view, the site
- * port pool, and any optional bootstrap device config. Idempotent: with conflict policy
- * USE_EXISTING a running workflow is left untouched, so Temporal — not this proxy's local config —
- * stays the source of truth for operational state. Restarting the proxy therefore never resets
- * what an operator changed at runtime.
+ * Ensures the singleton control workflow exists, seeding it with the catalog's slim view, the site port
+ * pool, and any optional bootstrap device config. Idempotent: USE_EXISTING leaves a running workflow
+ * untouched, so Temporal stays the source of truth and restarting the proxy never resets what an
+ * operator changed at runtime.
  */
 public class ProxyControlStarter {
 

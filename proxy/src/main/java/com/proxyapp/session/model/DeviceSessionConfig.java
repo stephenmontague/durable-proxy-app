@@ -4,15 +4,9 @@ import com.proxyapp.routing.model.TcpProtocol;
 import com.proxyapp.routing.model.TcpSession;
 
 /**
- * The slim, runtime-facing view of a device's persistent-session config that
- * {@link com.proxyapp.session.TcpSessionManager TcpSessionManager} reconciles against — derived from an
- * {@link com.proxyapp.routing.model.EdgeConfig} whose {@link TcpSession} is PERSISTENT. Record equality
- * drives reconcile's "did this device's session change?" check (reopen on any change).
- *
- * @param deviceId device id
- * @param host     device host the CLIENT dials (from EdgeConfig.host)
- * @param protocol frame delimiters reused from the device/binding TcpProtocol; null = newline framing
- * @param session  the persistent-session settings (role, port, heartbeat, correlation)
+ * Runtime-facing view of a device's persistent-session config, derived from an EdgeConfig whose
+ * {@link TcpSession} is PERSISTENT. Record equality drives reconcile's "did this session change?"
+ * check, which reopens the socket on any change. Null {@code protocol} = newline framing.
  */
 public record DeviceSessionConfig(String deviceId, String host, TcpProtocol protocol, TcpSession session) {
 }

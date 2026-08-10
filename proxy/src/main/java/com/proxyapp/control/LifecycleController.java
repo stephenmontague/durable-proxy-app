@@ -11,16 +11,13 @@ import org.springframework.context.ApplicationContext;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Acts on a lifecycle command (restart/shutdown) the control workflow pushed via the
- * {@code deliverLifecycle} activity. Acks first so the cleared command is durable before the JVM
- * goes away, then exits on a separate, slightly-delayed thread — never on the activity thread,
- * because an activity that kills its own worker before its completion is recorded would be retried
- * on relaunch and exit again.
+ * Acts on a lifecycle command the control workflow pushed via {@code deliverLifecycle}. Exits on a
+ * delayed thread, never the activity thread: an activity that kills its worker before its completion
+ * is recorded gets retried on relaunch and exits again.
  *
- * <p><b>Deployment requirement:</b> the proxy cannot restart itself, only exit. Run it under
- * something that relaunches on {@link #RESTART_EXIT_CODE} — a systemd unit with
- * {@code Restart=on-failure}, a service, a container restart policy — and set
- * {@code PROXY_SUPERVISED=true} there. Without one, restart degrades to shutdown.
+ * <p>The proxy cannot restart itself, only exit. Run it under something that relaunches on
+ * {@link #RESTART_EXIT_CODE} and set {@code PROXY_SUPERVISED=true} there; without one, restart
+ * degrades to shutdown.
  */
 public class LifecycleController {
 
@@ -48,9 +45,9 @@ public class LifecycleController {
                 || ProxyControlState.LIFECYCLE_NONE.equals(command)) {
             return;
         }
-        // Ack FIRST so the cleared command is durable before the process goes away — otherwise the
-        // relaunched proxy would see the same command and exit again. A failure here throws (the
-        // activity fails) and leaves us alive with exiting=false, so a later attempt can retry.
+        // Ack FIRST so the cleared command is durable before the process goes away, else the
+        // relaunched proxy sees the same command and exits again. A throw here leaves us alive
+        // with exiting=false, so a later attempt can retry.
         workflowClient.newWorkflowStub(ProxyControlWorkflow.class, ProxyControlWorkflow.WORKFLOW_ID)
                 .ackLifecycle(requestId);
         if (!exiting.compareAndSet(false, true)) {

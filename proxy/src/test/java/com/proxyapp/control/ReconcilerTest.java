@@ -31,8 +31,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Runs against real ingress collaborators binding real ports — a reconcile that "succeeds" without
- * opening a listener is the failure worth catching. Only {@link WorkerFactory} is mocked.
+ * Runs against real ingress collaborators binding real ports, so a reconcile that "succeeds" without
+ * opening a listener fails the test. Only {@link WorkerFactory} is mocked.
  */
 class ReconcilerTest {
 

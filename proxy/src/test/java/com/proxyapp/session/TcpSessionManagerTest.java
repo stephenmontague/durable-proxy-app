@@ -83,8 +83,8 @@ class TcpSessionManagerTest {
                 awaitTrue(() -> manager.statuses().size() == 2, 2_000);
                 assertThat(manager.statuses().stream().map(DeviceSessionStatus::deviceId).toList())
                         .containsExactly("dev-a", "dev-b");
-                // the diagnostics fields project through statuses(): a live link has a transition
-                // timestamp and a non-null (possibly empty) event history it can carry to the cloud
+                // diagnostics project through statuses(): a live link has a transition timestamp and
+                // a non-null event history to carry to the cloud
                 assertThat(manager.statuses()).allSatisfy(s -> {
                     assertThat(s.lastTransitionAt()).isNotNull();
                     assertThat(s.recentEvents()).isNotNull();

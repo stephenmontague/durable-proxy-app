@@ -30,12 +30,10 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
- * The proxy's <b>connection table</b> for persistent device links: a {@code Map<deviceId,
- * DeviceSession>}. Mirrors {@link com.proxyapp.ingress.TcpSocketServer} /
- * {@code FtpIngressListener} — the {@code Reconciler} calls {@link #reconcile} as control state
- * changes, opening new sessions, closing removed ones, and hot-replacing changed ones. Sessions
- * live outside Temporal (blocking I/O, continuous heartbeats); the outbound activity borrows one
- * as its transport.
+ * The proxy's connection table for persistent device links. The Reconciler calls {@link #reconcile} as
+ * control state changes, opening new sessions, closing removed ones, and hot-replacing changed ones.
+ * Sessions live outside Temporal (blocking I/O, continuous heartbeats); the outbound activity borrows
+ * one as its transport.
  */
 public class TcpSessionManager {
 
@@ -113,9 +111,8 @@ public class TcpSessionManager {
     }
 
     /**
-     * Hand an outbound message to the device's live session — the outbound activity calls this for
-     * PERSISTENT TCP devices. Throws if the device has no session yet, so the activity retries
-     * until reconcile has opened it (and Temporal keeps the message durable meanwhile).
+     * Hand an outbound message to the device's live session. Throws if the device has no session yet,
+     * so the activity retries until reconcile has opened it, message still durable.
      */
     public void send(String deviceId, byte[] payload) {
         DeviceSession session = sessions.get(deviceId);
