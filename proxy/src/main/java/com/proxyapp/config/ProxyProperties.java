@@ -39,17 +39,41 @@ public record ProxyProperties(String taskQueue, String controlTaskQueue, String 
         }
         for (String part : spec.split(",")) {
             String range = part.trim();
+            if (range.isEmpty()) {
+                continue;
+            }
             int dash = range.indexOf('-');
             if (dash > 0) {
-                int from = Integer.parseInt(range.substring(0, dash).trim());
-                int to = Integer.parseInt(range.substring(dash + 1).trim());
+                int from = port(range.substring(0, dash), range);
+                int to = port(range.substring(dash + 1), range);
+                if (from > to) {
+                    throw new IllegalArgumentException(POOL_PROPERTY + ": range '" + range
+                            + "' runs backwards (" + from + " > " + to + ")");
+                }
                 for (int p = from; p <= to; p++) {
                     pool.add(p);
                 }
-            } else if (!range.isEmpty()) {
-                pool.add(Integer.parseInt(range));
+            } else {
+                pool.add(port(range, range));
             }
         }
         return pool;
+    }
+
+    private static final String POOL_PROPERTY = "proxy.ingress.tcp-port-pool";
+
+    private static int port(String token, String context) {
+        int value;
+        try {
+            value = Integer.parseInt(token.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(POOL_PROPERTY + ": '" + context
+                    + "' is not a port or port range");
+        }
+        if (value < 1 || value > 65535) {
+            throw new IllegalArgumentException(POOL_PROPERTY + ": port " + value + " in '" + context
+                    + "' is outside 1-65535");
+        }
+        return value;
     }
 }
