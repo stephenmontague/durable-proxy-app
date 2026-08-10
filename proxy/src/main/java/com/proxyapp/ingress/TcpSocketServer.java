@@ -1,8 +1,10 @@
 package com.proxyapp.ingress;
 
+import com.proxyapp.routing.WireString;
 import com.proxyapp.routing.model.TcpProtocol;
 import com.proxyapp.routing.model.Transport;
-import com.proxyapp.routing.WireString;
+import com.proxyapp.wire.FrameBuffer;
+import com.proxyapp.wire.WireLimits;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +17,6 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -49,9 +50,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class TcpSocketServer {
 
     private static final Logger log = LoggerFactory.getLogger(TcpSocketServer.class);
-    private static final int MAX_FRAME_BYTES = 10 * 1024 * 1024;
-    /** While seeking a start delimiter, don't hoard unbounded noise. */
-    private static final int NOISE_COMPACT_THRESHOLD = 8 * 1024;
 
     private record Listener(ServerSocket socket, AtomicReference<TcpProtocol> protocol) {
     }
@@ -230,7 +228,7 @@ public class TcpSocketServer {
                 if (buf.endsWith(start)) {
                     buf.reset(); // discard the delimiter (and any noise before it)
                     seekingStart = false;
-                } else if (buf.size() > NOISE_COMPACT_THRESHOLD) {
+                } else if (buf.size() > WireLimits.NOISE_COMPACT_THRESHOLD) {
                     buf.compactKeepLast(start.length - 1);
                 }
                 continue;
@@ -247,8 +245,9 @@ public class TcpSocketServer {
                 continue;
             }
 
-            if (buf.size() > MAX_FRAME_BYTES) {
-                log.error("TCP port {} frame exceeded {} bytes; closing connection", port, MAX_FRAME_BYTES);
+            if (buf.size() > WireLimits.MAX_FRAME_BYTES) {
+                log.error("TCP port {} frame exceeded {} bytes; closing connection",
+                        port, WireLimits.MAX_FRAME_BYTES);
                 out.write(nakBytes(protocol, "FRAME_TOO_LARGE", ""));
                 out.flush();
                 return; // delimiter resync can't be trusted after a runaway frame
@@ -297,54 +296,5 @@ public class TcpSocketServer {
     public void shutdown() {
         reconcile(Map.of());
         executor.shutdownNow();
-    }
-
-    /** Growable byte buffer with cheap endsWith — avoids O(n²) toByteArray scans. */
-    private static final class FrameBuffer {
-        private byte[] data = new byte[1024];
-        private int size;
-
-        void append(byte b) {
-            if (size == data.length) {
-                data = Arrays.copyOf(data, data.length * 2);
-            }
-            data[size++] = b;
-        }
-
-        boolean endsWith(byte[] suffix) {
-            if (size < suffix.length) {
-                return false;
-            }
-            for (int i = 0; i < suffix.length; i++) {
-                if (data[size - suffix.length + i] != suffix[i]) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        byte[] toArray(int length) {
-            return Arrays.copyOf(data, length);
-        }
-
-        /** Keep only the last {@code n} bytes (delimiter-straddle window for noise mode). */
-        void compactKeepLast(int n) {
-            if (n <= 0) {
-                size = 0;
-                return;
-            }
-            if (size > n) {
-                System.arraycopy(data, size - n, data, 0, n);
-                size = n;
-            }
-        }
-
-        void reset() {
-            size = 0;
-        }
-
-        int size() {
-            return size;
-        }
     }
 }

@@ -1,12 +1,15 @@
 package com.proxyapp.session;
+
+import com.proxyapp.routing.WireString;
+import com.proxyapp.routing.model.TcpProtocol;
+import com.proxyapp.routing.model.TcpSession;
 import com.proxyapp.session.model.DeviceSessionConfig;
 import com.proxyapp.session.model.DeviceSessionState;
 import com.proxyapp.session.model.DeviceSessionStatus;
 import com.proxyapp.session.model.SessionEvent;
-
-import com.proxyapp.routing.model.TcpProtocol;
-import com.proxyapp.routing.model.TcpSession;
-import com.proxyapp.routing.WireString;
+import com.proxyapp.wire.Bytes;
+import com.proxyapp.wire.FrameBuffer;
+import com.proxyapp.wire.WireLimits;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +23,6 @@ import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayDeque;
-import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -59,8 +61,6 @@ final class DeviceSession {
     private static final Logger log = LoggerFactory.getLogger(DeviceSession.class);
     /** Per-beat heartbeat/ack trace — its own logger so `logging.level.heartbeat` toggles it. */
     private static final Logger hb = LoggerFactory.getLogger("heartbeat");
-    private static final int MAX_FRAME_BYTES = 10 * 1024 * 1024;
-    private static final int NOISE_COMPACT_THRESHOLD = 8 * 1024;
     /** Read wakeup granularity so the loop notices {@code closed} / shutdown promptly. */
     private static final int READ_IDLE_MS = 1_000;
     /** Per-session transition history kept for remote diagnosis (bounded ring buffer). */
@@ -411,7 +411,7 @@ final class DeviceSession {
                 if (buf.endsWith(startDelim)) {
                     buf.reset();
                     seekingStart = false;
-                } else if (buf.size() > NOISE_COMPACT_THRESHOLD) {
+                } else if (buf.size() > WireLimits.NOISE_COMPACT_THRESHOLD) {
                     buf.compactKeepLast(startDelim.length - 1);
                 }
                 continue;
@@ -422,8 +422,9 @@ final class DeviceSession {
                 seekingStart = startDelim != null;
                 continue;
             }
-            if (buf.size() > MAX_FRAME_BYTES) {
-                log.error("device {} frame exceeded {} bytes; dropping link", config.deviceId(), MAX_FRAME_BYTES);
+            if (buf.size() > WireLimits.MAX_FRAME_BYTES) {
+                log.error("device {} frame exceeded {} bytes; dropping link",
+                        config.deviceId(), WireLimits.MAX_FRAME_BYTES);
                 return;
             }
         }
@@ -437,14 +438,14 @@ final class DeviceSession {
         lastInboundAtMs = nowMs();
         consecutiveMisses.set(0);
         synchronized (ackLock) {
-            if (pendingAck != null && contains(frame, frame.length, pendingAck)) {
+            if (pendingAck != null && Bytes.contains(frame, frame.length, pendingAck)) {
                 ackReceived = true;
                 ackLock.notifyAll();
                 hb.info("{} <- ACK (send complete)", config.deviceId());
                 return;
             }
         }
-        if (expectReply != null && contains(frame, frame.length, expectReply)) {
+        if (expectReply != null && Bytes.contains(frame, frame.length, expectReply)) {
             pingOutstanding = false;
             hb.info("{} <- PONG #{} (link up {})", config.deviceId(), beats, uptime());
             return;
@@ -550,25 +551,6 @@ final class DeviceSession {
         return framed;
     }
 
-    private static boolean contains(byte[] haystack, int size, byte[] needle) {
-        if (needle.length == 0 || needle.length > size) {
-            return false;
-        }
-        for (int from = 0; from <= size - needle.length; from++) {
-            boolean match = true;
-            for (int i = 0; i < needle.length; i++) {
-                if (haystack[from + i] != needle[i]) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private static void closeSocket(Socket s) {
         if (s != null) {
             try {
@@ -597,57 +579,10 @@ final class DeviceSession {
         return System.currentTimeMillis();
     }
 
-    /** Human "link up" duration since the current connection was established (for the demo trace). */
+    /** Human "link up" duration since the current connection was established, for the {@code hb} trace. */
     private String uptime() {
         long s = Math.max(0, nowMs() - connectedAtMs) / 1000;
         return s < 60 ? s + "s" : (s / 60) + "m" + (s % 60) + "s";
     }
 
-    /** Growable byte buffer with cheap endsWith — same shape as TcpSocketServer's frame reader. */
-    private static final class FrameBuffer {
-        private byte[] data = new byte[1024];
-        private int size;
-
-        void append(byte b) {
-            if (size == data.length) {
-                data = Arrays.copyOf(data, data.length * 2);
-            }
-            data[size++] = b;
-        }
-
-        boolean endsWith(byte[] suffix) {
-            if (size < suffix.length) {
-                return false;
-            }
-            for (int i = 0; i < suffix.length; i++) {
-                if (data[size - suffix.length + i] != suffix[i]) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        byte[] toArray(int length) {
-            return Arrays.copyOf(data, length);
-        }
-
-        void compactKeepLast(int n) {
-            if (n <= 0) {
-                size = 0;
-                return;
-            }
-            if (size > n) {
-                System.arraycopy(data, size - n, data, 0, n);
-                size = n;
-            }
-        }
-
-        void reset() {
-            size = 0;
-        }
-
-        int size() {
-            return size;
-        }
-    }
 }

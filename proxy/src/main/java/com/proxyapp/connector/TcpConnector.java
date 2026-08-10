@@ -1,9 +1,10 @@
 package com.proxyapp.connector;
-import com.proxyapp.connector.model.ChannelTarget;
 
+import com.proxyapp.connector.model.ChannelTarget;
+import com.proxyapp.routing.WireString;
 import com.proxyapp.routing.model.TcpProtocol;
 import com.proxyapp.routing.model.Transport;
-import com.proxyapp.routing.WireString;
+import com.proxyapp.wire.Bytes;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -136,24 +137,12 @@ public class TcpConnector implements Connector {
                 acc = java.util.Arrays.copyOf(acc, Math.min(acc.length * 2, REPLY_CAP_BYTES));
             }
             acc[size++] = (byte) b;
-            if (contains(acc, size, expected)) {
+            // endsWith, not contains: we re-check after every single-byte append, so only the tail
+            // can have newly matched. A full scan per byte would make this read quadratic.
+            if (Bytes.endsWith(acc, size, expected)) {
                 return;
             }
         }
-    }
-
-    private static boolean contains(byte[] haystack, int size, byte[] needle) {
-        if (needle.length > size) {
-            return false;
-        }
-        // Only the tail can newly match after a one-byte append.
-        int from = size - needle.length;
-        for (int i = 0; i < needle.length; i++) {
-            if (haystack[from + i] != needle[i]) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /** Render reply bytes safely for error messages: control bytes as \xNN. */
