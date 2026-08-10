@@ -26,12 +26,4 @@ public record AppliedStatus(long version, boolean enabled, List<String> httpPath
                             List<Integer> tcpPorts, List<String> ftpFolders,
                             String startedAt, String reportedAt, boolean supervised,
                             List<DeviceSessionStatus> sessions) {
-
-    /** Pre-persistent-session call sites: no device sessions. */
-    public AppliedStatus(long version, boolean enabled, List<String> httpPaths,
-                         List<Integer> tcpPorts, List<String> ftpFolders,
-                         String startedAt, String reportedAt, boolean supervised) {
-        this(version, enabled, httpPaths, tcpPorts, ftpFolders, startedAt, reportedAt,
-                supervised, List.of());
-    }
 }

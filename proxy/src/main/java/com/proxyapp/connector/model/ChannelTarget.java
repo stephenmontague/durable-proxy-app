@@ -10,10 +10,6 @@ public sealed interface ChannelTarget {
 
     /** @param protocol effective wire protocol for this route; null = legacy framing */
     record TcpTarget(String host, int port, TcpProtocol protocol) implements ChannelTarget {
-
-        public TcpTarget(String host, int port) {
-            this(host, port, null);
-        }
     }
 
     /**

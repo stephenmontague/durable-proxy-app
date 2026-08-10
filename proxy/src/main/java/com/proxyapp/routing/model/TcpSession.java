@@ -24,24 +24,17 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  * @param correlation request/response matching over the one shared socket; null = single-in-flight
  * @param inboundType single message type for unsolicited device→cloud frames on this socket (must
  *                    be an EDGE_TO_CLOUD type); null = none. Mutually exclusive with {@code resolver}.
- * @param resolver    for a socket carrying several inbound types: a {@link MessageTypeResolver}
+ * @param resolver    for a socket carrying several inbound types: a {@link com.proxyapp.routing.MessageTypeResolver MessageTypeResolver}
  *                    (e.g. {@code content-pattern}) that types each frame; null = none
  */
 public record TcpSession(Mode mode, Role role, Integer port, Integer listenPort,
                          String handshakeId, Heartbeat heartbeat, Correlation correlation,
                          String inboundType, ResolverConfig resolver) {
 
-    /** Common case / back-compat: no unsolicited-inbound typing configured. */
+    /** A session with no unsolicited-inbound typing configured — neither inboundType nor resolver. */
     public TcpSession(Mode mode, Role role, Integer port, Integer listenPort,
                       String handshakeId, Heartbeat heartbeat, Correlation correlation) {
         this(mode, role, port, listenPort, handshakeId, heartbeat, correlation, null, null);
-    }
-
-    /** A single unsolicited-inbound type, no resolver. */
-    public TcpSession(Mode mode, Role role, Integer port, Integer listenPort,
-                      String handshakeId, Heartbeat heartbeat, Correlation correlation,
-                      String inboundType) {
-        this(mode, role, port, listenPort, handshakeId, heartbeat, correlation, inboundType, null);
     }
 
     public enum Mode { PER_MESSAGE, PERSISTENT }

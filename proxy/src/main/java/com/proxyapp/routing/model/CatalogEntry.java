@@ -17,7 +17,7 @@ package com.proxyapp.routing.model;
 public record CatalogEntry(MessageType type, Direction direction, String codec,
                            String cloudEndpoint, String businessIdField, boolean allowDuplicates) {
 
-    /** Backward-compatible: dedup on (allowDuplicates = false), the historical behavior. */
+    /** Default: dedup on (allowDuplicates = false), which is what all but streaming types want. */
     public CatalogEntry(MessageType type, Direction direction, String codec,
                         String cloudEndpoint, String businessIdField) {
         this(type, direction, codec, cloudEndpoint, businessIdField, false);

@@ -1,4 +1,6 @@
 package com.proxyapp.routing;
+
+import com.proxyapp.profile.DeviceFleetProfile;
 import com.proxyapp.routing.model.Channel;
 import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.model.MessageType;
@@ -7,8 +9,6 @@ import com.proxyapp.routing.model.RouteBinding;
 import com.proxyapp.routing.model.TcpProtocol;
 import com.proxyapp.routing.model.TcpSession;
 import com.proxyapp.routing.model.Transport;
-
-import com.proxyapp.profile.DeviceFleetProfile;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -108,7 +108,7 @@ class ConfigValidatorTest {
                 "<VT>ACK {activityId}<FS><CR>", "<VT>NAK {reason}<FS><CR>", "ACK", true);
         EdgeConfig device = new EdgeConfig("gateway-1", null, "10.0.0.5", null, null, null, List.of(
                 new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP,
-                        Channel.port(6001))), mllp);
+                        Channel.port(6001))), mllp, null);
         assertThat(ConfigValidator.validate(catalog, pool, List.of(device))).isEmpty();
     }
 
@@ -127,7 +127,7 @@ class ConfigValidatorTest {
     void tcpProtocolFieldsMustParseAndBeNonEmpty() {
         TcpProtocol bad = new TcpProtocol("\\x0", "", null, null, null, null);
         EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
-                List.of(), bad);
+                List.of(), bad, null);
         List<String> errors = ConfigValidator.validate(catalog, pool, List.of(device));
         assertThat(errors).containsExactly(
                 "a: device tcpProtocol.startDelimiter: \\x escape requires two hex digits at position 0",
@@ -138,14 +138,14 @@ class ConfigValidatorTest {
     void startDelimiterRequiresEndDelimiter() {
         TcpProtocol startOnly = new TcpProtocol("<STX>", null, null, null, null, null);
         EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
-                List.of(), startOnly);
+                List.of(), startOnly, null);
         assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
                 .containsExactly("a: device tcpProtocol: startDelimiter requires endDelimiter");
 
         // end-only IS legal: newline-terminated protocols
         TcpProtocol endOnly = new TcpProtocol(null, "<LF>", null, null, null, null);
         EdgeConfig ok = new EdgeConfig("b", null, "10.0.0.5", null, null, null,
-                List.of(), endOnly);
+                List.of(), endOnly, null);
         assertThat(ConfigValidator.validate(catalog, pool, List.of(ok))).isEmpty();
     }
 
@@ -153,7 +153,7 @@ class ConfigValidatorTest {
     void fireAndForgetWithExpectedAckIsContradictory() {
         TcpProtocol contradiction = new TcpProtocol(null, "<LF>", null, null, "PONG", false);
         EdgeConfig device = new EdgeConfig("a", null, "10.0.0.5", null, null, null,
-                List.of(), contradiction);
+                List.of(), contradiction, null);
         assertThat(ConfigValidator.validate(catalog, pool, List.of(device)))
                 .containsExactly("a: device tcpProtocol: expectedAck is meaningless when awaitReply is false");
     }
@@ -347,7 +347,7 @@ class ConfigValidatorTest {
 
     private static TcpSession persistentClient(String inboundType) {
         return new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT, 9001, null, null,
-                new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null, inboundType);
+                new TcpSession.Heartbeat(30, "PING", null, null, null, 3), null, inboundType, null);
     }
 
     @Test

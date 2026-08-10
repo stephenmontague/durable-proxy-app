@@ -25,7 +25,7 @@ import com.proxyapp.routing.model.MessageType;
 public record CatalogEntryDto(String type, String direction, String codec,
                               String cloudEndpoint, String businessIdField, boolean allowDuplicates) {
 
-    /** Backward-compatible 5-arg form (allowDuplicates = false) for existing callers and stored state. */
+    /** Default: dedup on (allowDuplicates = false). Also the shape stored state deserializes into. */
     public CatalogEntryDto(String type, String direction, String codec,
                            String cloudEndpoint, String businessIdField) {
         this(type, direction, codec, cloudEndpoint, businessIdField, false);

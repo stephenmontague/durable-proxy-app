@@ -23,15 +23,10 @@ public record EdgeConfig(String deviceId, String baseUrl, String host, Integer f
                          String ftpUser, String ftpPassword, List<RouteBinding> bindings,
                          TcpProtocol tcpProtocol, TcpSession tcpSession) {
 
+    /** A device with no TCP wire-protocol override and no persistent session — the common case. */
     public EdgeConfig(String deviceId, String baseUrl, String host, Integer ftpPort,
                       String ftpUser, String ftpPassword, List<RouteBinding> bindings) {
         this(deviceId, baseUrl, host, ftpPort, ftpUser, ftpPassword, bindings, null, null);
-    }
-
-    public EdgeConfig(String deviceId, String baseUrl, String host, Integer ftpPort,
-                      String ftpUser, String ftpPassword, List<RouteBinding> bindings,
-                      TcpProtocol tcpProtocol) {
-        this(deviceId, baseUrl, host, ftpPort, ftpUser, ftpPassword, bindings, tcpProtocol, null);
     }
 
     public List<RouteBinding> bindings() {
