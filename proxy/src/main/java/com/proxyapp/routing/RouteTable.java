@@ -1,6 +1,6 @@
 package com.proxyapp.routing;
+
 import com.proxyapp.routing.model.CatalogEntry;
-import com.proxyapp.routing.model.Channel;
 import com.proxyapp.routing.model.Direction;
 import com.proxyapp.routing.model.EdgeConfig;
 import com.proxyapp.routing.model.MessageType;
@@ -16,12 +16,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Immutable resolution of the current routing config, rebuilt by the Reconciler on every
- * config change. Resolves:
- * <ul>
- *   <li>outbound: (type) -> device + binding to send on</li>
- *   <li>inbound: (transport, channel) -> message type + binding (channel-based, zero payload inspection)</li>
- * </ul>
+ * Immutable resolution of the current routing config, rebuilt by the Reconciler on every change.
+ * Outbound maps type -> device + binding; inbound maps (transport, channel) -> type + binding, with no
+ * payload inspection.
  */
 public final class RouteTable {
 
@@ -92,11 +89,8 @@ public final class RouteTable {
                 .collect(Collectors.toSet());
     }
 
-    /**
-     * Inbound TCP port -> effective wire protocol for the listener on that port.
-     * Values may be null (legacy protocol) — hence a HashMap, not Map.copyOf.
-     * Channel-collision validation guarantees at most one binding per port.
-     */
+    /** Inbound TCP port -> effective wire protocol. Values may be null (legacy), hence a HashMap
+     *  rather than Map.copyOf. */
     public Map<Integer, TcpProtocol> inboundTcpProtocols() {
         Map<Integer, TcpProtocol> result = new LinkedHashMap<>();
         String prefix = Transport.TCP.name() + "|";

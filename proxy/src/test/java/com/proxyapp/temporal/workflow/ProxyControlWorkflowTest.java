@@ -1,8 +1,8 @@
 package com.proxyapp.temporal.workflow;
+
 import com.proxyapp.control.model.AppliedStatus;
 import com.proxyapp.control.model.CatalogEntryDto;
 import com.proxyapp.control.model.ProxyControlState;
-
 import com.proxyapp.profile.DeviceFleetProfile;
 import com.proxyapp.routing.model.Channel;
 import com.proxyapp.routing.model.EdgeConfig;
@@ -41,8 +41,8 @@ class ProxyControlWorkflowTest {
         env = TestWorkflowEnvironment.newInstance();
         Worker worker = env.newWorker(TASK_QUEUE);
         worker.registerWorkflowImplementationTypes(ProxyControlWorkflowImpl.class);
-        // The push-based workflow schedules a reconcile activity on every version change; register a
-        // recording stand-in so those pushes complete in-test (the real one runs in the proxy JVM).
+        // Every version change schedules a reconcile activity, so register a recording stand-in to
+        // let those pushes complete in-test.
         activities = new RecordingActivities();
         worker.registerActivitiesImplementations(activities);
         env.start();
@@ -180,7 +180,7 @@ class ProxyControlWorkflowTest {
 
         long desired = workflow.reportApplied(new AppliedStatus(3, true, List.of("/command-result"),
                 List.of(6001), List.of("report-uploads"),
-                "2026-06-11T12:00:00Z", "2026-06-11T12:00:05Z", true));
+                "2026-06-11T12:00:00Z", "2026-06-11T12:00:05Z", true, List.of()));
         assertThat(desired).isEqualTo(versionBefore);                       // returns desired version
         assertThat(workflow.getState().getVersion()).isEqualTo(versionBefore); // applied report doesn't bump
 
@@ -228,7 +228,7 @@ class ProxyControlWorkflowTest {
                 null, List.of(new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP,
                         Channel.port(6001), null,
                         new com.proxyapp.routing.model.TcpProtocol(null, "<LF>", null, null, null, false))),
-                mllp);
+                mllp, null);
         workflow.upsertDevice(device);
 
         ProxyControlState state = workflow.getState();
@@ -357,7 +357,7 @@ class ProxyControlWorkflowTest {
             reconcileCount.incrementAndGet();
             lastReconciledVersion = desired.getVersion();
             return new AppliedStatus(desired.getVersion(), desired.isEnabled(),
-                    List.of(), List.of(), List.of(), "t", "t", false);
+                    List.of(), List.of(), List.of(), "t", "t", false, List.of());
         }
 
         @Override

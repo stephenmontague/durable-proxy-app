@@ -1,6 +1,6 @@
 package com.proxyapp.connector;
-import com.proxyapp.connector.model.ChannelTarget;
 
+import com.proxyapp.connector.model.ChannelTarget;
 import com.proxyapp.routing.model.TcpProtocol;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +53,7 @@ class TcpConnectorTest {
             socket.getOutputStream().write("ACK\n".getBytes(StandardCharsets.UTF_8));
         });
 
-        connector.send(new ChannelTarget.TcpTarget("127.0.0.1", port), "hello".getBytes());
+        connector.send(new ChannelTarget.TcpTarget("127.0.0.1", port, null), "hello".getBytes());
         assertThat(seen.join()).isEqualTo("hello".getBytes());
     }
 

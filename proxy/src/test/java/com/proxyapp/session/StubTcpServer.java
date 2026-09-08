@@ -11,9 +11,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 /**
- * Minimal in-test TCP server: binds an ephemeral port, accepts connections, and runs a
- * per-connection handler on its own thread so the accept loop keeps going. Used to exercise
- * {@link DeviceSession}/{@link TcpSessionManager} CLIENT behavior without a real device.
+ * Minimal in-test TCP server standing in for a device: binds an ephemeral port and runs each
+ * connection's handler on its own thread so the accept loop keeps going.
  */
 final class StubTcpServer implements AutoCloseable {
 
@@ -26,7 +25,7 @@ final class StubTcpServer implements AutoCloseable {
         this(handler, false);
     }
 
-    /** @param acceptOnce stop accepting after the first connection (so reconnects are refused). */
+    /** {@code acceptOnce} stops accepting after the first connection, so reconnects are refused. */
     StubTcpServer(Consumer<Socket> handler, boolean acceptOnce) throws IOException {
         this.server = new ServerSocket(0);
         this.handler = handler;

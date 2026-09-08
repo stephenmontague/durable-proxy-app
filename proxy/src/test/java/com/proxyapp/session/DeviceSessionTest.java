@@ -1,9 +1,10 @@
 package com.proxyapp.session;
-import com.proxyapp.session.model.DeviceSessionConfig;
-import com.proxyapp.session.model.DeviceSessionState;
 
 import com.proxyapp.routing.model.TcpProtocol;
 import com.proxyapp.routing.model.TcpSession;
+import com.proxyapp.session.model.DeviceSessionConfig;
+import com.proxyapp.session.model.DeviceSessionState;
+import com.proxyapp.support.Await;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,16 +24,17 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * CLIENT-mode session behavior against a stub server: connect→UP, reconnect on drop, and
- * UP↔DOWN transitions driven by missed heartbeats (both the passive watchdog and the active
- * ping/expect-reply probe). Intervals come from config in seconds, so a few tests run a couple of
- * real seconds — backoff is dialed down so reconnects are quick.
+ * CLIENT-mode session behavior against a stub server: connect→UP, reconnect on drop, and UP↔DOWN
+ * transitions from missed heartbeats (passive watchdog and active ping alike). Intervals are
+ * config-driven in seconds, so a few tests take a couple of real seconds.
  */
 class DeviceSessionTest {
 
@@ -211,13 +213,87 @@ class DeviceSessionTest {
         session.close();
     }
 
+    @Test
+    void sendFailsAsSoonAsTheLinkDropsInsteadOfWaitingOutTheAckTimeout() throws Exception {
+        // Device never acks: without the wake, this send blocks for the full 30s.
+        long ackTimeoutMs = 30_000;
+        try (StubTcpServer server = new StubTcpServer(StubTcpServer::silent)) {
+            DeviceSession session = clientSession(server.port(), watchdog(60, 5), null, ackTimeoutMs);
+            session.start();
+            awaitState(session, DeviceSessionState.UP, 2_000);
+
+            AtomicReference<Throwable> thrown = new AtomicReference<>();
+            AtomicLong elapsedMs = new AtomicLong();
+            Thread sender = new Thread(() -> {
+                long start = System.currentTimeMillis();
+                try {
+                    session.send("NEEDS-ACK".getBytes(StandardCharsets.ISO_8859_1));
+                } catch (Throwable t) {
+                    thrown.set(t);
+                } finally {
+                    elapsedMs.set(System.currentTimeMillis() - start);
+                }
+            }, "test-sender");
+            sender.setDaemon(true);
+            sender.start();
+
+            // Let the send get parked in its ack wait, then drop the link out from under it.
+            awaitTrue(() -> session.status().inflight() == 1, 2_000);
+            for (Socket accepted : server.accepted) {
+                closeQuietly(accepted);
+            }
+
+            sender.join(10_000);
+            assertThat(sender.isAlive()).isFalse();
+            assertThat(thrown.get())
+                    .isInstanceOf(SessionSendException.class)
+                    .hasMessageContaining("before its send was acked");
+            assertThat(elapsedMs.get()).isLessThan(ackTimeoutMs / 2);
+            session.close();
+        }
+    }
+
+    @Test
+    void closingASessionAlsoReleasesAParkedSend() throws Exception {
+        long ackTimeoutMs = 30_000;
+        try (StubTcpServer server = new StubTcpServer(StubTcpServer::silent)) {
+            DeviceSession session = clientSession(server.port(), watchdog(60, 5), null, ackTimeoutMs);
+            session.start();
+            awaitState(session, DeviceSessionState.UP, 2_000);
+
+            AtomicReference<Throwable> thrown = new AtomicReference<>();
+            Thread sender = new Thread(() -> {
+                try {
+                    session.send("NEEDS-ACK".getBytes(StandardCharsets.ISO_8859_1));
+                } catch (Throwable t) {
+                    thrown.set(t);
+                }
+            }, "test-sender");
+            sender.setDaemon(true);
+            sender.start();
+
+            awaitTrue(() -> session.status().inflight() == 1, 2_000);
+            session.close();
+
+            sender.join(10_000);
+            assertThat(sender.isAlive()).isFalse();
+            assertThat(thrown.get()).isInstanceOf(SessionSendException.class);
+        }
+    }
+
     // ---- helpers ----
 
     private DeviceSession clientSession(int port, TcpSession.Heartbeat hb, TcpProtocol protocol) {
+        return clientSession(port, hb, protocol, 500);
+    }
+
+    private DeviceSession clientSession(int port, TcpSession.Heartbeat hb, TcpProtocol protocol,
+                                        long sendAckTimeoutMs) {
         TcpSession session = new TcpSession(TcpSession.Mode.PERSISTENT, TcpSession.Role.CLIENT,
                 port, null, null, hb, null);
         DeviceSessionConfig cfg = new DeviceSessionConfig("dev-1", "127.0.0.1", protocol, session);
-        return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200, 500, inboundFrames::add);
+        return new DeviceSession(cfg, connectExecutor, scheduler, 500, 50, 200,
+                sendAckTimeoutMs, inboundFrames::add);
     }
 
     private DeviceSession serverSession() {
@@ -232,27 +308,13 @@ class DeviceSessionTest {
         return new TcpSession.Heartbeat(null, null, null, null, expectInboundSec, missThreshold);
     }
 
-    private static void awaitState(DeviceSession session, DeviceSessionState expected, long timeoutMs)
-            throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (expected.name().equals(session.status().state())) {
-                return;
-            }
-            Thread.sleep(25);
-        }
-        assertThat(session.status().state()).isEqualTo(expected.name());
+    private static void awaitState(DeviceSession session, DeviceSessionState expected, long timeoutMs) {
+        Await.until("device session to reach " + expected,
+                () -> expected.name().equals(session.status().state()), timeoutMs);
     }
 
-    private static void awaitTrue(BooleanSupplier condition, long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            Thread.sleep(25);
-        }
-        assertThat(condition.getAsBoolean()).isTrue();
+    private static void awaitTrue(BooleanSupplier condition, long timeoutMs) {
+        Await.until(condition, timeoutMs);
     }
 
     private static void closeQuietly(Socket socket) {

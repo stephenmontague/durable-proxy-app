@@ -6,10 +6,9 @@ import com.proxyapp.routing.model.CatalogEntry;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Opaque passthrough codec: the proxy carries the payload byte-for-byte (as UTF-8 text) and
- * never parses it. There's no structure to read a business id from, so dedup always uses a
- * content hash. Pick this for formats the proxy shouldn't interpret — fixed-width, delimited,
- * or any vendor blob — where you just want it relayed.
+ * Opaque passthrough codec: the proxy carries the payload byte-for-byte (as UTF-8 text) and never
+ * parses it. With no structure to read a business id from, dedup always uses a content hash. For
+ * formats the proxy shouldn't interpret — fixed-width, delimited, vendor blobs.
  */
 public class RawCodec implements MessageCodec {
 

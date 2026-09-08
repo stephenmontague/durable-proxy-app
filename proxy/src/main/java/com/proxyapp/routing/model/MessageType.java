@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
  * Opaque key for a named, directional message flow. The core never interprets the name;
- * everything domain-specific about it lives in the {@link MessageCatalog}.
+ * everything domain-specific about it lives in the {@link com.proxyapp.routing.MessageCatalog MessageCatalog}.
  */
 public record MessageType(@JsonValue String value) {
 

@@ -1,8 +1,8 @@
 package com.proxyapp.temporal.workflow;
+
 import com.proxyapp.control.model.AppliedStatus;
 import com.proxyapp.control.model.CatalogEntryDto;
 import com.proxyapp.control.model.ProxyControlState;
-
 import com.proxyapp.routing.model.EdgeConfig;
 import io.temporal.workflow.QueryMethod;
 import io.temporal.workflow.SignalMethod;
@@ -13,14 +13,10 @@ import io.temporal.workflow.WorkflowMethod;
 import java.util.List;
 
 /**
- * Singleton control workflow per install (Workflow ID {@code proxy-control}) — the durable source
- * of truth for operational config. It is <b>push-based</b>: config changes arrive as Updates that
- * validate, mutate, and return the resulting state synchronously; on each accepted change the
- * workflow schedules a reconcile <i>activity</i> on the proxy worker (it does not poll). Between
- * changes the workflow parks on a no-timeout {@code Workflow.await} and costs no Actions.
- *
- * <p>Everything rides the egress gRPC connection; the proxy never opens an inbound port. This
- * indirection is what lets an egress-only proxy be remotely controlled.
+ * Singleton control workflow per install — the durable source of truth for operational config.
+ * Push-based: each accepted change schedules a reconcile activity on the proxy worker rather than
+ * polling, and between changes the workflow parks on a no-timeout await, costing no Actions.
+ * Everything rides the egress gRPC connection; the proxy never opens an inbound port.
  */
 @WorkflowInterface
 public interface ProxyControlWorkflow {
@@ -31,10 +27,9 @@ public interface ProxyControlWorkflow {
     void run(ProxyControlState initialState);
 
     /**
-     * Config changes are <b>Updates</b>: each validates, mutates, and returns the resulting control
-     * state synchronously — {@code version} is bumped and {@code lastError} cleared on accept;
-     * {@code lastError} is set and {@code version} left unchanged on reject. The cloud reads the
-     * returned state and persists it to its H2 read model, so no confirmation Query is needed.
+     * Config changes are Updates: each validates, mutates, and returns the resulting state
+     * synchronously. Accept bumps {@code version} and clears {@code lastError}; reject sets
+     * {@code lastError} and leaves {@code version} alone. No confirmation Query is needed.
      */
     @UpdateMethod
     ProxyControlState enable();
@@ -64,10 +59,7 @@ public interface ProxyControlWorkflow {
     @UpdateMethod
     ProxyControlState importCatalog(List<CatalogEntryDto> entries);
 
-    /**
-     * Ask the workflow to (re)apply current desired state now: manual repair, the proxy's one-shot
-     * boot sync, and drift self-heal. Fire-and-forget — it just wakes the reconcile loop.
-     */
+    /** Re-apply current desired state now: manual repair, the proxy's boot sync, drift self-heal. */
     @SignalMethod
     void requestReconcile();
 
@@ -84,21 +76,18 @@ public interface ProxyControlWorkflow {
     void ackLifecycle(String requestId);
 
     /**
-     * The proxy reports its applied state (link-health transitions) as an <b>Update</b>; the return
-     * value is the current desired {@code version} so the proxy can detect drift and self-heal via
-     * {@link #requestReconcile()}. Routine post-reconcile applied state is captured for free as the
-     * reconcile activity's return value, so this fires only on transitions between reconciles.
+     * The proxy reports applied state (link-health transitions); returns the current desired
+     * {@code version} so the proxy can detect drift and self-heal via {@link #requestReconcile()}.
+     * Fires only on transitions between reconciles — routine applied state comes back free as the
+     * reconcile activity's return value.
      */
     @UpdateMethod
     long reportApplied(AppliedStatus status);
 
     /**
-     * On-demand <b>live</b> link check. Unlike {@link #getState()} (a Query returning the last-reported
-     * {@code applied} snapshot), this schedules a lightweight {@code ProbeSessions} activity on the
-     * proxy worker that reads the current persistent-TCP session state (UP/DOWN/CONNECTING) straight
-     * from the sockets, records it, and returns it — so the cloud gets ground truth for one Action per
-     * call. If the proxy is unreachable the activity fails fast and the Update surfaces that (rather
-     * than returning a stale UP). Does not bump {@code version} or wake the reconcile loop.
+     * On-demand live link check, where {@link #getState()} returns the last-reported snapshot. Reads
+     * session state straight from the sockets via a {@code ProbeSessions} activity, so an unreachable
+     * proxy fails fast instead of returning a stale UP. No version bump, no reconcile wake.
      */
     @UpdateMethod
     AppliedStatus checkSessions();

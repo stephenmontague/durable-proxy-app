@@ -1,12 +1,15 @@
 package com.proxyapp.session;
+
+import com.proxyapp.routing.WireString;
+import com.proxyapp.routing.model.TcpProtocol;
+import com.proxyapp.routing.model.TcpSession;
 import com.proxyapp.session.model.DeviceSessionConfig;
 import com.proxyapp.session.model.DeviceSessionState;
 import com.proxyapp.session.model.DeviceSessionStatus;
 import com.proxyapp.session.model.SessionEvent;
-
-import com.proxyapp.routing.model.TcpProtocol;
-import com.proxyapp.routing.model.TcpSession;
-import com.proxyapp.routing.WireString;
+import com.proxyapp.wire.Bytes;
+import com.proxyapp.wire.FrameBuffer;
+import com.proxyapp.wire.WireLimits;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +23,6 @@ import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayDeque;
-import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -33,34 +35,20 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
- * One persistent connection to a device. CLIENT role dials the device and keeps the socket warm,
- * reconnecting with backoff on any drop. SERVER role is passive — the {@link TcpSessionManager}
- * acceptor owns the listen port and hands this session each accepted socket (after handshake demux
- * for shared ports) via {@link #serveAcceptedSocket}. Either way the heartbeat ping and liveness
- * check run as periodic tasks on the shared scheduler and the read loop is identical.
+ * One persistent connection to a device. CLIENT dials and keeps the socket warm, reconnecting with
+ * backoff; SERVER is passive, taking accepted sockets from the {@link TcpSessionManager} acceptor.
+ * Lives in worker-process code, never a workflow or activity — it blocks on socket I/O, and
+ * heartbeats must never become workflow events.
  *
- * <p>Owned by {@link TcpSessionManager} and lives entirely in worker-process code — never a
- * Temporal workflow or activity (it does blocking socket I/O, and heartbeats must never become
- * workflow events).
- *
- * <p><b>Liveness</b> ({@code missThreshold} consecutive misses → DOWN + reconnect; any inbound
- * frame is proof of life and resets the counter):
- * <ul>
- *   <li><b>Active probe</b> — {@code sendIntervalSec} + {@code expectReply}: send a ping each
- *       interval; a miss is counted when no reply arrives within {@code replyTimeoutMs}.</li>
- *   <li><b>Passive watchdog</b> — {@code expectInboundSec}: a miss is counted for each window with
- *       no inbound frame (the device pushes its own heartbeats).</li>
- *   <li><b>Keepalive only</b> — a ping with no {@code expectReply} and no watchdog just keeps the
- *       link warm; DOWN is then detected only by TCP errors.</li>
- * </ul>
+ * <p>Liveness: {@code missThreshold} consecutive misses go DOWN and reconnect; any inbound frame
+ * resets the counter. An active probe counts a miss per unanswered ping, a passive watchdog one per
+ * silent window; a ping with neither only keeps the link warm, leaving DOWN to TCP errors.
  */
 final class DeviceSession {
 
     private static final Logger log = LoggerFactory.getLogger(DeviceSession.class);
     /** Per-beat heartbeat/ack trace — its own logger so `logging.level.heartbeat` toggles it. */
     private static final Logger hb = LoggerFactory.getLogger("heartbeat");
-    private static final int MAX_FRAME_BYTES = 10 * 1024 * 1024;
-    private static final int NOISE_COMPACT_THRESHOLD = 8 * 1024;
     /** Read wakeup granularity so the loop notices {@code closed} / shutdown promptly. */
     private static final int READ_IDLE_MS = 1_000;
     /** Per-session transition history kept for remote diagnosis (bounded ring buffer). */
@@ -91,11 +79,10 @@ final class DeviceSession {
     private final int missThreshold;
     private final boolean activeProbe; // sendIntervalSec != null && expectReply != null
 
-    // Runtime state.
     private volatile boolean closed;
     private volatile DeviceSessionState state = DeviceSessionState.CONNECTING;
-    // Diagnostics surfaced in status() so the "why" of a drop rides the egress connection back to the
-    // cloud (the local logs are on an unreachable edge machine). Guarded by eventLock.
+    // Diagnostics surfaced in status(), since the local logs sit on an unreachable edge machine.
+    // Guarded by eventLock.
     private final Object eventLock = new Object();
     private final Deque<SessionEvent> events = new ArrayDeque<>();
     private String lastError;        // reason of the most recent DOWN; cleared on UP, kept on CONNECTING
@@ -106,7 +93,7 @@ final class DeviceSession {
     private volatile long lastInboundAtMs;    // 0 = never
     private volatile boolean pingOutstanding;
     private volatile long pingDeadlineMs;
-    private volatile long beats;              // heartbeats sent this connection (demo trace)
+    private volatile long beats;              // heartbeats sent this connection (heartbeat trace only)
     private volatile long connectedAtMs;      // for "link up Xs" in the heartbeat trace
     private final AtomicInteger consecutiveMisses = new AtomicInteger();
     private final AtomicInteger inflight = new AtomicInteger(); // outbound sends awaiting their ack
@@ -176,17 +163,19 @@ final class DeviceSession {
     }
 
     /**
-     * The single writer for {@link #state}. A no-op when the state is unchanged, so a specific fault
-     * reason recorded by one thread (e.g. "3 missed heartbeat(s)") is not clobbered by the read
-     * loop's follow-up DOWN. Stamps the transition, appends a bounded event, and tracks the reason:
-     * DOWN sets {@link #lastError}, UP clears it, CONNECTING preserves it (so a reconnecting link
-     * still explains its last drop).
+     * The single writer for {@link #state}, and a no-op when unchanged so a specific fault reason isn't
+     * clobbered by the read loop's follow-up DOWN. DOWN sets {@link #lastError}, UP clears it,
+     * CONNECTING preserves it. Leaving UP also wakes a send parked in its ack wait, failing it at once
+     * instead of burning {@code sendAckTimeoutMs}; that notify is sent after {@code eventLock} is
+     * released, so the lock order is only ever eventLock → ackLock.
      */
     private void transition(DeviceSessionState newState, String detail) {
+        boolean leftUp;
         synchronized (eventLock) {
             if (newState == state) {
                 return;
             }
+            leftUp = state == DeviceSessionState.UP;
             state = newState;
             lastTransitionAtMs = nowMs();
             if (newState == DeviceSessionState.DOWN) {
@@ -198,6 +187,11 @@ final class DeviceSession {
                     Instant.ofEpochMilli(lastTransitionAtMs).toString(), newState.name(), detail));
             while (events.size() > MAX_EVENTS) {
                 events.removeFirst();
+            }
+        }
+        if (leftUp) {
+            synchronized (ackLock) {
+                ackLock.notifyAll();
             }
         }
     }
@@ -225,15 +219,14 @@ final class DeviceSession {
         cancel(pingTask);
         cancel(livenessTask);
         closeSocket(socket.getAndSet(null));
-        state = DeviceSessionState.DOWN;
+        transition(DeviceSessionState.DOWN, "session closed");
     }
 
     /**
-     * Write one outbound message onto the live socket and (unless fire-and-forget) await its ack.
-     * Single-in-flight: one send at a time; the next inbound frame containing the configured
-     * {@code expectedAck} completes it. Throws {@link SessionSendException} on a down link, a busy
-     * slot, a write error, or a missing ack — the caller is the Temporal activity, so a throw means
-     * the message stays durable and the activity retries.
+     * Write one outbound message onto the live socket and, unless fire-and-forget, await its ack.
+     * Single-in-flight: the next inbound frame containing {@code expectedAck} completes it. Throws
+     * {@link SessionSendException} on a down link, busy slot, write error, or missing ack — the caller
+     * is the Temporal activity, so a throw keeps the message durable and retries.
      */
     void send(byte[] payload) {
         boolean acquired;
@@ -268,8 +261,13 @@ final class DeviceSession {
                     ackLock.wait(remaining);
                 }
                 if (!ackReceived) {
-                    throw new SessionSendException("device " + config.deviceId()
-                            + " sent no ack within " + sendAckTimeoutMs + "ms");
+                    // transition() wakes us the moment the link leaves UP, so tell "device went away
+                    // mid-send" apart from "device stayed up but never acked".
+                    throw new SessionSendException(state == DeviceSessionState.UP
+                            ? "device " + config.deviceId() + " sent no ack within "
+                                    + sendAckTimeoutMs + "ms"
+                            : "device " + config.deviceId() + " link went " + state
+                                    + " before its send was acked");
                 }
             }
         } catch (IOException e) {
@@ -323,13 +321,12 @@ final class DeviceSession {
             sleep(backoff);
             backoff = Math.min(maxBackoffMs, backoff * 2);
         }
-        state = DeviceSessionState.DOWN;
+        transition(DeviceSessionState.DOWN, "connect loop stopped");
     }
 
     /**
-     * SERVER: serve a socket the manager's acceptor handed us (already demuxed to this device by
-     * listen port + handshake). A fresh dial-in supersedes the current connection; on drop the link
-     * goes DOWN until the device dials in again.
+     * SERVER: serve a socket the acceptor already demuxed to this device. A fresh dial-in supersedes
+     * the current connection; on drop the link stays DOWN until the device dials in again.
      */
     void serveAcceptedSocket(Socket s) {
         if (closed) {
@@ -393,7 +390,7 @@ final class DeviceSession {
                 if (buf.endsWith(startDelim)) {
                     buf.reset();
                     seekingStart = false;
-                } else if (buf.size() > NOISE_COMPACT_THRESHOLD) {
+                } else if (buf.size() > WireLimits.NOISE_COMPACT_THRESHOLD) {
                     buf.compactKeepLast(startDelim.length - 1);
                 }
                 continue;
@@ -404,35 +401,33 @@ final class DeviceSession {
                 seekingStart = startDelim != null;
                 continue;
             }
-            if (buf.size() > MAX_FRAME_BYTES) {
-                log.error("device {} frame exceeded {} bytes; dropping link", config.deviceId(), MAX_FRAME_BYTES);
+            if (buf.size() > WireLimits.MAX_FRAME_BYTES) {
+                log.error("device {} frame exceeded {} bytes; dropping link",
+                        config.deviceId(), WireLimits.MAX_FRAME_BYTES);
                 return;
             }
         }
     }
 
-    /**
-     * Any inbound frame is proof of life. A frame carrying a pending send's {@code expectedAck}
-     * completes that send; one carrying {@code expectReply} answers a ping.
-     */
+    /** Any inbound frame is proof of life; one carrying {@code expectedAck} completes a pending send,
+     *  one carrying {@code expectReply} answers a ping. */
     private void onFrame(byte[] frame) {
         lastInboundAtMs = nowMs();
         consecutiveMisses.set(0);
         synchronized (ackLock) {
-            if (pendingAck != null && contains(frame, frame.length, pendingAck)) {
+            if (pendingAck != null && Bytes.contains(frame, frame.length, pendingAck)) {
                 ackReceived = true;
                 ackLock.notifyAll();
                 hb.info("{} <- ACK (send complete)", config.deviceId());
                 return;
             }
         }
-        if (expectReply != null && contains(frame, frame.length, expectReply)) {
+        if (expectReply != null && Bytes.contains(frame, frame.length, expectReply)) {
             pingOutstanding = false;
             hb.info("{} <- PONG #{} (link up {})", config.deviceId(), beats, uptime());
             return;
         }
-        // Unsolicited device -> cloud frame: hand to the inbound sink (-> DeliverToCloud). A failed
-        // enqueue must not drop the link, so swallow and let the device re-send if it retries.
+        // A failed enqueue must not drop the link, so swallow and let the device re-send.
         try {
             inboundSink.accept(frame);
         } catch (RuntimeException e) {
@@ -532,25 +527,6 @@ final class DeviceSession {
         return framed;
     }
 
-    private static boolean contains(byte[] haystack, int size, byte[] needle) {
-        if (needle.length == 0 || needle.length > size) {
-            return false;
-        }
-        for (int from = 0; from <= size - needle.length; from++) {
-            boolean match = true;
-            for (int i = 0; i < needle.length; i++) {
-                if (haystack[from + i] != needle[i]) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private static void closeSocket(Socket s) {
         if (s != null) {
             try {
@@ -579,57 +555,10 @@ final class DeviceSession {
         return System.currentTimeMillis();
     }
 
-    /** Human "link up" duration since the current connection was established (for the demo trace). */
+    /** Human "link up" duration since the current connection was established, for the {@code hb} trace. */
     private String uptime() {
         long s = Math.max(0, nowMs() - connectedAtMs) / 1000;
         return s < 60 ? s + "s" : (s / 60) + "m" + (s % 60) + "s";
     }
 
-    /** Growable byte buffer with cheap endsWith — same shape as TcpSocketServer's frame reader. */
-    private static final class FrameBuffer {
-        private byte[] data = new byte[1024];
-        private int size;
-
-        void append(byte b) {
-            if (size == data.length) {
-                data = Arrays.copyOf(data, data.length * 2);
-            }
-            data[size++] = b;
-        }
-
-        boolean endsWith(byte[] suffix) {
-            if (size < suffix.length) {
-                return false;
-            }
-            for (int i = 0; i < suffix.length; i++) {
-                if (data[size - suffix.length + i] != suffix[i]) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        byte[] toArray(int length) {
-            return Arrays.copyOf(data, length);
-        }
-
-        void compactKeepLast(int n) {
-            if (n <= 0) {
-                size = 0;
-                return;
-            }
-            if (size > n) {
-                System.arraycopy(data, size - n, data, 0, n);
-                size = n;
-            }
-        }
-
-        void reset() {
-            size = 0;
-        }
-
-        int size() {
-            return size;
-        }
-    }
 }

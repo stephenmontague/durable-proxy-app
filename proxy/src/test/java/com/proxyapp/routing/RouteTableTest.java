@@ -1,4 +1,6 @@
 package com.proxyapp.routing;
+
+import com.proxyapp.profile.DeviceFleetProfile;
 import com.proxyapp.routing.model.Channel;
 import com.proxyapp.routing.model.Direction;
 import com.proxyapp.routing.model.EdgeConfig;
@@ -7,8 +9,6 @@ import com.proxyapp.routing.model.ResolverConfig;
 import com.proxyapp.routing.model.RouteBinding;
 import com.proxyapp.routing.model.TcpProtocol;
 import com.proxyapp.routing.model.Transport;
-
-import com.proxyapp.profile.DeviceFleetProfile;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -86,7 +86,7 @@ class RouteTableTest {
                 // overrides it
                 new RouteBinding(DeviceFleetProfile.CONFIG_UPDATE, Transport.TCP,
                         Channel.port(9001), null, bindProto)),
-                devProto);
+                devProto, null);
         RouteTable table = new RouteTable(catalog, List.of(device));
 
         assertThat(table.resolveInbound(Transport.TCP, "6001").orElseThrow()
@@ -105,7 +105,7 @@ class RouteTableTest {
         TcpProtocol devProto = new TcpProtocol(null, "<LF>", "OK {activityId}", null, null, null);
         EdgeConfig device = new EdgeConfig("gateway-1", null, "10.0.0.5", null, null, null, List.of(
                 new RouteBinding(DeviceFleetProfile.CONFIG_ACK, Transport.TCP, Channel.port(6001))),
-                devProto);
+                devProto, null);
         RouteTable table = new RouteTable(catalog, List.of(device, new EdgeConfig(
                 "legacy-dev", null, "10.0.0.6", null, null, null, List.of(
                         new RouteBinding(DeviceFleetProfile.COMMAND_RESULT, Transport.TCP, Channel.port(6002))))));

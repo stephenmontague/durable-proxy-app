@@ -1,12 +1,12 @@
 package com.proxyapp.temporal.activity;
 
 import com.proxyapp.codec.CodecRegistry;
-import com.proxyapp.connector.model.ChannelTarget;
 import com.proxyapp.connector.ConnectorFactory;
+import com.proxyapp.connector.model.ChannelTarget;
 import com.proxyapp.model.CanonicalMessage;
-import com.proxyapp.routing.model.MessageType;
 import com.proxyapp.routing.RouteTable;
 import com.proxyapp.routing.RoutingState;
+import com.proxyapp.routing.model.MessageType;
 import com.proxyapp.routing.model.Transport;
 import com.proxyapp.session.TcpSessionManager;
 import io.temporal.failure.ApplicationFailure;
@@ -51,8 +51,8 @@ public class DeliverToEdgeActivityImpl implements DeliverToEdgeActivity {
         var device = route.device();
         if (route.binding().transport() == Transport.TCP
                 && device.tcpSession() != null && device.tcpSession().isPersistent()) {
-            // Persistent TCP: write onto the already-open, heartbeated socket and await the
-            // correlated ack. Durability/retry is unchanged — only the in-activity transport differs.
+            // Write onto the already-open heartbeated socket. Durability and retry are unchanged;
+            // only the in-activity transport differs.
             tcpSessionManager.send(device.deviceId(), payload);
             log.info("delivered {} to edge device '{}' over its persistent TCP session",
                     message.activityId(), device.deviceId());

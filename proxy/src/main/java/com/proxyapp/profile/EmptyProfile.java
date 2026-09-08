@@ -1,16 +1,14 @@
 package com.proxyapp.profile;
 
-import com.proxyapp.routing.model.DeviceTemplate;
 import com.proxyapp.routing.MessageCatalog;
+import com.proxyapp.routing.model.DeviceTemplate;
 
 import java.util.List;
 
 /**
- * The default profile for a fresh install: nothing pre-configured. The proxy boots with an empty
- * catalog and no device templates; the operator defines every message type and device through the
- * UI, and that config persists in the control workflow (Temporal stays the source of truth). This is
- * the production model — an install is a blank slate, not a seeded demo. Swap to {@link DeviceFleetProfile}
- * (proxy.profile=device-fleet) for the legacy reference fleet.
+ * The default profile: empty catalog, no device templates. Everything is defined at runtime through
+ * the control workflow, which is then the source of truth. Set {@code proxy.profile} to pin a
+ * catalog at build time instead — see {@link DeviceFleetProfile}.
  */
 public final class EmptyProfile implements Profile {
 

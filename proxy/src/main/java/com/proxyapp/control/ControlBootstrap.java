@@ -1,6 +1,6 @@
 package com.proxyapp.control;
-import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 
+import com.proxyapp.temporal.workflow.ProxyControlWorkflow;
 import io.temporal.client.WorkflowClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,11 +12,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Replaces the old 2s control poll. On start it ensures the control workflow exists and sends one
- * {@code requestReconcile} so the proxy applies current desired state immediately — covering both a
- * fresh install and a proxy restart against an already-running workflow (which won't re-invoke
- * {@code run()}). Retries until the first success (Temporal may be briefly unreachable at boot),
- * then stops. After that every reconcile is pushed by the workflow; there is no recurring poll.
+ * On start, ensures the control workflow exists and sends one {@code requestReconcile} so the proxy
+ * applies current desired state immediately — covering a fresh install and a restart against an
+ * already-running workflow, which won't re-invoke {@code run()}. Retries until the first success,
+ * then stops; every later reconcile is pushed by the workflow.
  */
 public class ControlBootstrap implements SmartLifecycle {
 

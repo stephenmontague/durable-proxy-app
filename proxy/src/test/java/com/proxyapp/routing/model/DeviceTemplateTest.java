@@ -1,7 +1,7 @@
 package com.proxyapp.routing.model;
-import com.proxyapp.routing.ConfigValidator;
 
 import com.proxyapp.profile.DeviceFleetProfile;
+import com.proxyapp.routing.ConfigValidator;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

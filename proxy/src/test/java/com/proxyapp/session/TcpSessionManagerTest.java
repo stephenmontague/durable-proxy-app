@@ -1,8 +1,9 @@
 package com.proxyapp.session;
-import com.proxyapp.session.model.DeviceSessionConfig;
-import com.proxyapp.session.model.DeviceSessionStatus;
 
 import com.proxyapp.routing.model.TcpSession;
+import com.proxyapp.session.model.DeviceSessionConfig;
+import com.proxyapp.session.model.DeviceSessionStatus;
+import com.proxyapp.support.Await;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
@@ -82,8 +83,8 @@ class TcpSessionManagerTest {
                 awaitTrue(() -> manager.statuses().size() == 2, 2_000);
                 assertThat(manager.statuses().stream().map(DeviceSessionStatus::deviceId).toList())
                         .containsExactly("dev-a", "dev-b");
-                // the diagnostics fields project through statuses(): a live link has a transition
-                // timestamp and a non-null (possibly empty) event history it can carry to the cloud
+                // diagnostics project through statuses(): a live link has a transition timestamp and
+                // a non-null event history to carry to the cloud
                 assertThat(manager.statuses()).allSatisfy(s -> {
                     assertThat(s.lastTransitionAt()).isNotNull();
                     assertThat(s.recentEvents()).isNotNull();
@@ -180,29 +181,14 @@ class TcpSessionManagerTest {
     }
 
     private static void awaitSessionState(TcpSessionManager manager, String deviceId, String state,
-                                          long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (manager.statuses().stream()
-                    .anyMatch(s -> s.deviceId().equals(deviceId) && s.state().equals(state))) {
-                return;
-            }
-            Thread.sleep(25);
-        }
-        assertThat(manager.statuses()).anySatisfy(s -> {
-            assertThat(s.deviceId()).isEqualTo(deviceId);
-            assertThat(s.state()).isEqualTo(state);
-        });
+                                          long timeoutMs) {
+        Await.until("device " + deviceId + " to reach " + state,
+                () -> manager.statuses().stream()
+                        .anyMatch(s -> s.deviceId().equals(deviceId) && s.state().equals(state)),
+                timeoutMs);
     }
 
-    private static void awaitTrue(BooleanSupplier condition, long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return;
-            }
-            Thread.sleep(25);
-        }
-        assertThat(condition.getAsBoolean()).isTrue();
+    private static void awaitTrue(BooleanSupplier condition, long timeoutMs) {
+        Await.until(condition, timeoutMs);
     }
 }

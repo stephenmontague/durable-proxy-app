@@ -3,9 +3,9 @@ package com.proxyapp.temporal.activity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.proxyapp.config.ProxyProperties;
 import com.proxyapp.model.CanonicalMessage;
+import com.proxyapp.routing.RoutingState;
 import com.proxyapp.routing.model.CatalogEntry;
 import com.proxyapp.routing.model.MessageType;
-import com.proxyapp.routing.RoutingState;
 import io.temporal.spring.boot.ActivityImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,8 +38,7 @@ public class DeliverToCloudActivityImpl implements DeliverToCloudActivity {
 
     @Override
     public void deliver(CanonicalMessage message) {
-        // Read the catalog from the live route table — the Reconciler rebuilds it from control
-        // state each reconcile, so the cloudEndpoint reflects the operator's latest catalog edits.
+        // The live route table, rebuilt each reconcile, so cloudEndpoint reflects the latest edits.
         CatalogEntry entry = routingState.table().catalog()
                 .require(MessageType.of(message.messageType()));
         String url = properties.cloud().baseUrl() + entry.cloudEndpoint();

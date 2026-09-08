@@ -1,9 +1,10 @@
 package com.proxyapp.connector;
-import com.proxyapp.connector.model.ChannelTarget;
 
+import com.proxyapp.connector.model.ChannelTarget;
+import com.proxyapp.routing.WireString;
 import com.proxyapp.routing.model.TcpProtocol;
 import com.proxyapp.routing.model.Transport;
-import com.proxyapp.routing.WireString;
+import com.proxyapp.wire.Bytes;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,22 +15,12 @@ import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Raw TCP delivery. Wire behavior comes from the route's {@link TcpProtocol}:
- *
- * <ul>
- *   <li><b>Legacy (null):</b> write the payload, half-close, read the reply until EOF,
- *       require it to start with {@code ACK}.</li>
- *   <li><b>Configured:</b> wrap the payload in the start/end delimiters; if
- *       {@code awaitReply} is false, fire-and-forget (delivery guarantee weakens to "the
- *       TCP write was accepted" — retries only fire on connect/write failure). Otherwise
- *       read incrementally and succeed the moment the reply <i>contains</i> the
- *       {@code expectedAck} bytes — framed devices hold the connection open and never
- *       send EOF, so waiting for stream end would always time out. Half-close is only
- *       used when no end delimiter exists (EOF-framed device with custom ack).</li>
- * </ul>
- *
- * A missing/invalid ack fails the send so the activity retries — raw TCP has no
- * store-and-forward of its own.
+ * Raw TCP delivery, shaped by the route's {@link TcpProtocol}. Legacy (null) writes the payload,
+ * half-closes, and requires a reply starting with {@code ACK}. Configured wraps the payload in the
+ * delimiters and succeeds the moment the reply contains {@code expectedAck} — framed devices never send
+ * EOF, so waiting for stream end would time out. {@code awaitReply} false is fire-and-forget, weakening
+ * the guarantee to "the write was accepted". A bad ack fails the send so the activity retries; raw TCP
+ * has no store-and-forward of its own.
  */
 public class TcpConnector implements Connector {
 
@@ -107,10 +98,7 @@ public class TcpConnector implements Connector {
         awaitAck(socket.getInputStream(), expected, tcp);
     }
 
-    /**
-     * Incremental read with early exit: succeed as soon as the accumulated reply contains
-     * the expected bytes. Framed devices keep the socket open, so EOF may never come.
-     */
+    /** Incremental read with early exit; framed devices keep the socket open, so EOF may never come. */
     private void awaitAck(InputStream in, byte[] expected, ChannelTarget.TcpTarget tcp)
             throws IOException {
         byte[] acc = new byte[Math.max(256, expected.length * 4)];
@@ -136,24 +124,12 @@ public class TcpConnector implements Connector {
                 acc = java.util.Arrays.copyOf(acc, Math.min(acc.length * 2, REPLY_CAP_BYTES));
             }
             acc[size++] = (byte) b;
-            if (contains(acc, size, expected)) {
+            // endsWith, not contains: re-checked after every single-byte append, so only the tail can
+            // have newly matched. A full scan per byte would make this read quadratic.
+            if (Bytes.endsWith(acc, size, expected)) {
                 return;
             }
         }
-    }
-
-    private static boolean contains(byte[] haystack, int size, byte[] needle) {
-        if (needle.length > size) {
-            return false;
-        }
-        // Only the tail can newly match after a one-byte append.
-        int from = size - needle.length;
-        for (int i = 0; i < needle.length; i++) {
-            if (haystack[from + i] != needle[i]) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /** Render reply bytes safely for error messages: control bytes as \xNN. */

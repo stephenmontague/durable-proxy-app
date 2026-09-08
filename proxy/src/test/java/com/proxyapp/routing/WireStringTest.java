@@ -6,8 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The vectors here are the shared spec — management-ui/src/lib/wire-string.test.ts
- * carries the SAME inputs and expected outputs/messages. Change them in both places.
+ * These vectors are the grammar's spec. The error strings are part of the control API, so a client
+ * that pre-validates operator input should reproduce these same inputs and messages.
  */
 class WireStringTest {
 
